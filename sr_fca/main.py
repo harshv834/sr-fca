@@ -289,7 +289,7 @@ class ClusterTrainer(BaseTrainer):
             self.optimizer.zero_grad()
             for idx, param in self.model.named_parameters():
                 sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
-                new_grad = sorted[int(beta*num_clients)):int((1-beta)*num_clients)),...].mean(dim=0)
+                new_grad = sorted[int(beta*num_clients):int((1-beta)*num_clients),...].mean(dim=0)
                 param.grad = new_grad
                 trmean_buffer[idx] = []
             optimizer.step()
