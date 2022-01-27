@@ -29,10 +29,9 @@ torch.cuda.manual_seed_all(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-
-
-
-config["num_clients_per_cluster"] = 8
+config["participation_ratio"] = 0.1
+config["total_num_clients_per_cluster"] = 80
+config["num_clients_per_cluster"] = int(config["participation_ratio"]*config["total_num_clients"])
 config["num_clusters"] = 4
 config["num_clients"] = config["num_clients_per_cluster"]*config["num_clusters"]
 config["dataset"] = "mnist"
@@ -69,7 +68,10 @@ def make_client_datasets(config):
     train_data = (train_dataset.data, train_dataset.targets)
     test_data = (test_dataset.data, test_dataset.targets)
     for i in range(config["num_clusters"]):
-        train_chunks, test_chunks = dataset_split(train_data, test_data, config["num_clients_per_cluster"], shuffle=True)
+        train_chunks, test_chunks = dataset_split(train_data, test_data, config["total_num_clients_per_cluster"], shuffle=True)
+        chunks_idx = random.choice(len(train_chunks), config["num_clients_per_cluster"])
+        train_chunks = train_chunks[chunks_idx]
+        test_chunks = train_chunks[chunks_idx]
         train_chunks_total += train_chunks
         test_chunks_total += test_chunks
     return train_chunks_total, test_chunks_total
@@ -119,19 +121,6 @@ class Client():
             (data, labels) = next(iterator)
         return (data, labels)
 train_chunks, test_chunks = make_client_datasets(config)
-
-import torchvision.transforms.functional as TF
-
-
-class RotationTransform:
-    """Rotate by one of the given angles."""
-
-    def __init__(self, angle):
-        self.angle = angle
-
-    def __call__(self, x):
-        return TF.rotate(x, self.angle)
-
 
 config["train_batch"] = 128
 config["test_batch"] = 512
@@ -264,7 +253,7 @@ MODEL_LIST = {"lin" : SimpleLinear}
 OPTIMIZER_LIST = {"sgd": optim.SGD, "adam": optim.Adam}
 LOSSES = {"cross_entropy": nn.CrossEntropyLoss()}
 # config["save_dir"] = os.path.join("./results")
-config["iterations"] = 100
+config["iterations"] = 80
 config["optimizer_params"] = {"lr":0.001}
 config["save_freq"] = 2
 config["print_freq"]  = 20
@@ -339,7 +328,7 @@ correlation_clustering(G)
 
 #config["t"] = 7
 #t = config["t"]
-clusters = [cluster  for cluster in clustering]
+clusters = [cluster  for cluster in clustering if len(clustering) > 1 ]
 cluster_map = {i: clusters[i] for i in range(len(clusters))}
 beta = 0.3
 
@@ -356,14 +345,25 @@ class ClusterTrainer(BaseTrainer):
         test_acc_list = []
         self.model.to(self.device)
         self.model.train()
+        
+        
         optimizer = OPTIMIZER_LIST[self.config["optimizer"]](self.model.parameters(), **self.config["optimizer_params"])
+        eff_num_workers = int(num_clients/(1 - 2*beta))
+        # if eff_num_workers > 0:
+        #     eff_batch_size = self.config["train_batch"]/eff_num_workers
+        #     for i in range(num_clients):
+        #         client_data_list[i].trainloader.batch_size = eff_batch_size
+                
         for iteration in tqdm(range(self.config["iterations"])):
             trmean_buffer = {}
             for idx, param in self.model.named_parameters():
                 trmean_buffer[idx] = []
             train_loss = 0
+            optimizer.zero_grad(set_to_none=True)
+
             for client in client_data_list:
-                optimizer.zero_grad()
+                if eff_num_workers>0:
+                    optimizer.zero_grad(set_to_none=True)
                 (X,Y) = client.sample_batch()
                 X = X.to(config["device"])
                 Y = Y.to(config["device"])
@@ -372,21 +372,23 @@ class ClusterTrainer(BaseTrainer):
                 loss = loss_func(out,Y)
                 loss.backward()
                 train_loss += loss.detach().cpu().numpy().item()
-                with torch.no_grad():
-                    for idx, param in self.model.named_parameters():
-                        trmean_buffer[idx].append(param.grad.clone())
+                if eff_num_workers>0:
+                    with torch.no_grad():
+                        for idx, param in self.model.named_parameters():
+                            trmean_buffer[idx].append(param.grad.clone())
             train_loss = train_loss/num_clients
-            optimizer.zero_grad()
-            for idx, param in self.model.named_parameters():
-                sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
-                start_idx = int(beta*num_clients)
-                end_idx = int((1-beta)*num_clients)
-                if end_idx < start_idx + 1:
-                    start_idx = 0
-                    end_idx = num_clients - 1
-                new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
-                param.grad = new_grad
-                trmean_buffer[idx] = []
+            if eff_num_workers>0:
+                optimizer.zero_grad()
+                for idx, param in self.model.named_parameters():
+                    sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
+                    start_idx = int(beta*num_clients)
+                    end_idx = int((1-beta)*num_clients)
+                    if end_idx < start_idx + 1:
+                        start_idx = 0
+                        end_idx = num_clients - 1
+                    new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
+                    param.grad = new_grad
+                    trmean_buffer[idx] = []
             optimizer.step()
             
             train_loss_list.append(train_loss)
@@ -417,7 +419,7 @@ class ClusterTrainer(BaseTrainer):
         return test_acc
 
 
-config["refine_steps"] = 3
+config["refine_steps"] = 2
 for refine_step in tqdm(range(config["refine_steps"])):
     beta = 0.3
     cluster_trainers = []
@@ -469,3 +471,65 @@ for refine_step in tqdm(range(config["refine_steps"])):
         for j in merge_clusters[i]:
             cluster_map_new[i] += cluster_map[j]
     cluster_map = cluster_map_new
+
+
+class GlobalTrainer(BaseTrainer):
+    def __init__(self,  config, save_dir):
+        super(GlobalTrainer, self).__init__(config, save_dir)
+        
+    def train(self, client_data_list):
+        num_clients = len(client_data_list)
+
+        train_loss_list = []
+        test_acc_list = []
+        self.model.to(self.device)
+        self.model.train()
+        
+        
+        optimizer = OPTIMIZER_LIST[self.config["optimizer"]](self.model.parameters(), **self.config["optimizer_params"])
+                
+        for iteration in tqdm(range(self.config["iterations"])):
+            train_loss = 0
+            optimizer.zero_grad(set_to_none=True)
+
+            for client in client_data_list:
+                (X,Y) = client.sample_batch()
+                X = X.to(config["device"])
+                Y = Y.to(config["device"])
+                loss_func = nn.CrossEntropyLoss()
+                out = self.model(X)
+                loss = loss_func(out,Y)
+                loss.backward()
+                train_loss += loss.detach().cpu().numpy().item()
+            train_loss = train_loss/num_clients
+            optimizer.step()
+            
+            train_loss_list.append(train_loss)
+            test_acc = 0
+            for client_data in client_data_list:
+                test_acc += calc_acc(self.model, self.device, client_data, train=False)
+            test_acc = test_acc/num_clients
+            test_acc_list.append(test_acc)
+            self.model.train()
+            if iteration % self.config["save_freq"] == 0 or iteration == self.config["iterations"] - 1:
+                self.save_model_weights()
+                self.save_metrics(train_loss_list, test_acc_list)
+            if iteration % self.config["print_freq"] == 0:
+                print("Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n".format(iteration,  train_loss, test_acc))
+                
+        self.model.eval()
+        self.model.cpu()
+
+
+    def test(self, client_data_list):
+        self.load_model_weights()
+        self.model.eval()
+        self.model.to(self.device)
+        test_acc = 0
+        for client_data in client_data_list:
+            test_acc += calc_acc(self.model, self.device, client_data, train=False)
+        self.model.cpu()
+        return test_acc
+
+global_trainer = GlobalTrainer(config, os.path.join(config["results_dir"], "global"))
+global_trainer.train(client_loaders)
