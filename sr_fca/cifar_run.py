@@ -1,7 +1,3 @@
-
-
-
-
 import torch
 import numpy as np
 from torch.utils.data import Dataset, DataLoader 
@@ -18,7 +14,7 @@ import random
 
 
 config = {}
-config["seed"] = 44
+config["seed"] = 42
 seed = config["seed"]
 os.environ['PYTHONHASHSEED'] = str(seed)
 # Torch RNG
@@ -29,16 +25,20 @@ torch.cuda.manual_seed_all(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-config["participation_ratio"] = 0.1
-config["total_num_clients_per_cluster"] = 80
+config["participation_ratio"] = 0.5
+config["total_num_clients_per_cluster"] = 16
 config["num_clients_per_cluster"] = int(config["participation_ratio"]*config["total_num_clients_per_cluster"])
-config["num_clusters"] = 4
+config["num_clusters"] = 2
 config["num_clients"] = config["num_clients_per_cluster"]*config["num_clusters"]
-config["dataset"] = "mnist"
+config["dataset"] = "cifar10"
 DATASET_LIB = {"mnist" : torchvision.datasets.MNIST, "emnist": torchvision.datasets.EMNIST, "cifar10": torchvision.datasets.CIFAR10}
 config["dataset_dir"] = "./experiments/dataset"
 config["results_dir"] = "./experiments/results"
 config["results_dir"] = os.path.join(config["results_dir"], config["dataset"], "seed_{}".format(seed))
+
+
+train_dataset = DATASET_LIB[config["dataset"]](root = config['dataset_dir'], download = True, train=True)
+test_dataset = DATASET_LIB[config["dataset"]](root = config['dataset_dir'], download = True, train=False)
 
 os.makedirs(config["results_dir"], exist_ok=True)
 
@@ -53,10 +53,11 @@ def split(dataset_size, num_clients, shuffle):
 def dataset_split(train_data, test_data, num_clients, shuffle):
     train_size = train_data[0].shape[0]
     train_split_idx = split(train_size, num_clients, shuffle)
-    train_chunks = [(train_data[0][train_split_idx[client]], train_data[1][train_split_idx[client]]) for client in range(num_clients)]
+    #import ipdb;ipdb.set_trace()
+    train_chunks = [(train_data[0][train_split_idx[client].tolist()], np.array(train_data[1])[train_split_idx[client].tolist()].tolist()) for client in range(num_clients)]
     test_size = test_data[0].shape[0]
     test_split_idx = split(test_size, num_clients, shuffle)
-    test_chunks = [(test_data[0][test_split_idx[client]], test_data[1][test_split_idx[client]]) for client in range(num_clients)]
+    test_chunks = [(test_data[0][test_split_idx[client]].tolist(), np.array(test_data[1])[test_split_idx[client].tolist()].tolist()) for client in range(num_clients)]
     return train_chunks, test_chunks
 
 def make_client_datasets(config):
@@ -70,46 +71,117 @@ def make_client_datasets(config):
     for i in range(config["num_clusters"]):
         train_chunks, test_chunks = dataset_split(train_data, test_data, config["total_num_clients_per_cluster"], shuffle=True)
         chunks_idx = np.random.choice(np.arange(len(train_chunks)), size=config["num_clients_per_cluster"], replace=False).astype(int)
-        # train_chunks = np.array(train_chunks)[chunks_idx].tolist()
-        # test_chunks = np.array(test_chunks)[chunks_idx].tolist()
-        #train_chunks = np.array(train_chunks)[chunks_idx].tolist()
-        #test_chunks = np.array(test_chunks)[chunks_idx].tolist()
         train_chunks = [train_chunks[idx] for idx in chunks_idx]
         test_chunks = [test_chunks[idx] for idx in chunks_idx]
-
+        #train_chunks = np.array(train_chunks)[chunks_idx].tolist()
+        #test_chunks = np.array(test_chunks)[chunks_idx].tolist()
         train_chunks_total += train_chunks
         test_chunks_total += test_chunks
     return train_chunks_total, test_chunks_total
 
 
-class ClientDataset(Dataset):
-    def __init__(self, data,transforms = None):
-        super(ClientDataset,self).__init__()
+train_chunks, test_chunks = make_client_datasets(config)
+
+class ClientWriteDataset(Dataset):
+    def __init__(self, data):
+        super(ClientWriteDataset,self).__init__()
         self.data = data[0]
         self.labels = data[1]
-        self.transforms = transforms
 
     def __len__(self):
         return len(self.data)
     
     def __getitem__(self,idx):
         idx_data = self.data[idx]
-        if self.transforms is not None:
-            transformed_data =self.transforms(idx_data)
-        else:
-            transformed_data = idx_data
         idx_labels = self.labels[idx]
-        return (transformed_data.unsqueeze(0).float(), idx_labels)
+        return (idx_data, idx_labels)
 
-class Client():
-    def __init__(self, train_data, test_data, client_id,  train_transforms, test_transforms, train_batch_size, test_batch_size, save_dir):
-        self.trainset = ClientDataset(train_data, train_transforms)
-        self.testset = ClientDataset(test_data, test_transforms)
-        self.trainloader = DataLoader(self.trainset, batch_size = train_batch_size, shuffle=True, num_workers=1)
-        self.testloader = DataLoader(self.testset, batch_size = test_batch_size, shuffle=False, num_workers=1)
+import torchvision.transforms as transforms
+
+from typing import List
+
+import torchvision
+
+from ffcv.fields import IntField, RGBImageField
+from ffcv.fields.decoders import IntDecoder, SimpleRGBImageDecoder
+from ffcv.loader import Loader, OrderOption
+from ffcv.pipeline.operation import Operation
+from ffcv.transforms import (
+    RandomHorizontalFlip,
+    Cutout,
+    RandomTranslate,
+    Convert,
+    ToDevice,
+    ToTensor,
+    ToTorchImage,
+)
+from ffcv.transforms.common import Squeeze
+from ffcv.writer import DatasetWriter
+
+
+client_loaders = []
+
+
+class Client:
+    def __init__(
+        self,
+        train_data,
+        test_data,
+        client_id,
+        train_image_pipeline,
+        test_image_pipeline,
+        label_pipeline,
+        train_batch_size,
+        test_batch_size,
+        save_dir,
+    ):
+        train_writeset = ClientWriteDataset(train_data)
+        test_writeset = ClientWriteDataset(test_data)
+        temp_path = os.path.join(save_dir, 'tmp_storage')
+        os.makedirs(temp_path, exist_ok=True)
+        train_beton_path = os.path.join(
+            temp_path, "train_client_{}.beton".format(client_id)
+        )
+        test_beton_path = os.path.join(
+            temp_path, "test_client_{}.beton".format(client_id)
+        )
+        train_writer = DatasetWriter(
+            train_beton_path,
+            {"image": RGBImageField(), "label": IntField()},
+        )
+        test_writer = DatasetWriter(
+            test_beton_path,
+            {"image": RGBImageField(), "label": IntField()},
+        )
+        train_writer.from_indexed_dataset(train_writeset)
+        test_writer.from_indexed_dataset(test_writeset)
+
+        self.client_id = client_id
+        self.trainloader = Loader(
+            train_beton_path,
+            batch_size=train_batch_size,
+            num_workers=8,
+            order=OrderOption.QUASI_RANDOM,
+            drop_last=True,
+            pipelines={"image": train_image_pipeline, "label": label_pipeline},
+        )
+        self.testloader = Loader(
+            test_beton_path,
+            batch_size=test_batch_size,
+            num_workers=8,
+            order=OrderOption.QUASI_RANDOM,
+            drop_last=False,
+            pipelines={"image": test_image_pipeline, "label": label_pipeline},
+        )
+
+        # self.trainloader = DataLoader(
+        #     self.trainset, batch_size=train_batch_size, shuffle=True, num_workers=8
+        # )
+        # self.testloader = DataLoader(
+        #     self.testset, batch_size=test_batch_size, shuffle=False, num_workers=8
+        # )
         self.train_iterator = iter(self.trainloader)
         self.test_iterator = iter(self.testloader)
-        self.client_id = client_id
         self.save_dir = os.path.join(save_dir, "init", "client_{}".format(client_id))
 
     def sample_batch(self, train=True):
@@ -125,61 +197,184 @@ class Client():
                 iterator = self.test_iterator
             (data, labels) = next(iterator)
         return (data, labels)
-train_chunks, test_chunks = make_client_datasets(config)
 
-config["train_batch"] = 64
+config["train_batch"] = 100
 config["test_batch"] = 512
-client_loaders = []
+CIFAR_MEAN = [0.4914, 0.4822, 0.4465]
+CIFAR_STD = [0.2023, 0.1994, 0.2010]
+
 for i in range(config["num_clusters"]):
     for j in range(config["num_clients_per_cluster"]):
         idx = i * config["num_clients_per_cluster"] + j
-        x_train = train_chunks[idx][0]
-        x_test = test_chunks[idx][0]
-        if i >0:
-            x_train = torch.rot90(x_train, i, [1, 2])
-            x_test = torch.rot90(x_test, i, [1, 2])
+        
+        
+        # train_transforms = transforms.Compose(
+        #     [
+        #         transforms.RandomCrop(32, padding=4),
+        #         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        #     ]
+        # )
+
+        # test_transforms = transforms.Compose(
+        #     [
+        #         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        #     ]
+        # )
+
+        label_pipeline: List[Operation] = [IntDecoder(), ToTensor(), ToDevice("cuda:0"), Squeeze()]
+        train_image_pipeline: List[Operation] = [   
+            SimpleRGBImageDecoder(),
+            RandomHorizontalFlip(),
+            RandomTranslate(padding=2),
+            Cutout(8, tuple(map(int, CIFAR_MEAN))),
+            ToTensor(),
+            ToDevice("cuda:0", non_blocking=True),
+            ToTorchImage(),
+            Convert(torch.float16),
+            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+        ]
+
+        test_image_pipeline: List[Operation] = [
+            SimpleRGBImageDecoder(),
+            ToTensor(),
+            ToDevice("cuda:0", non_blocking=True),
+            ToTorchImage(),
+            Convert(torch.float16),
+            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+        ]
+
+        # x_train = torch.as_tensor(train_chunks[idx][0]).float()
+        # x_test = torch.as_tensor(test_chunks[idx][0]).float()
+        # x_train = x_train.permute(0, 3, 1, 2)
+        # x_test = x_test.permute(0, 3, 1, 2)
+
+        if i > 0:
+            train_image_pipeline.extend([transforms.RandomRotation((180,180))])
+            test_image_pipeline.extend([transforms.RandomRotation((180,180))])
+        #     x_train = torch.rot90(x_train, i * 2, [2, 3])
+        #     x_test = torch.rot90(x_test, i * 2, [2, 3])
+        # x_train = x_train.permute(0, 2, 3, 1)
+        # x_train = x_train.permute(0, 2, 3, 1)
+
         client_loaders.append(
             Client(
-                (x_train, train_chunks[idx][1]),
-                (x_test, test_chunks[idx][1]),
+                train_chunks[idx],
+                test_chunks[idx],
                 idx,
-                train_transforms=None,
-                test_transforms=None,
+                train_image_pipeline=train_image_pipeline,
+                test_image_pipeline=test_image_pipeline,
+                label_pipeline=label_pipeline,
                 train_batch_size=config["train_batch"],
                 test_batch_size=config["test_batch"],
                 save_dir=config["results_dir"],
             )
         )
-class SimpleLinear(torch.nn.Module):
 
-    def __init__(self, h1=2048):
-        super().__init__()
-        self.fc1 = torch.nn.Linear(28*28, h1)
-        self.fc2 = torch.nn.Linear(h1, 10)
-
-    def forward(self, x):
-        x = x.view(-1, 28 * 28)
-        x = F.relu(self.fc1(x))
-        # x = F.sigmoid(self.fc1(x))
-        x = self.fc2(x)
+from torchvision.models import resnet18
+class ResNet(nn.Module):
+    def __init__(self):
+        super(ResNet, self).__init__()
+        self.model = resnet18(pretrained=True)
+        for param in self.model.parameters():
+            param.requires_grad=False
+        in_features = self.model.fc.in_features
+        self.model.fc = nn.Linear(in_features, 10)
+        
+    def forward(self, input):
+        x = self.model(input)
         return x
     
-    
-    
+class Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        layer_list = [self.conv1, self.conv2, self.pool, self.fc1, self.fc2]
+        for layer in layer_list:
+            for param in layer.parameters():
+                param.requires_grad = False
+        self.fc3 = nn.Linear(84, 10)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = torch.flatten(x, 1) # flatten all dimensions except batch
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+
+
+class Mul(nn.Module):
+    def __init__(self, weight):
+        super(Mul, self).__init__()
+        self.weight = weight
+    def forward(self, x): return x * self.weight
+
+class Flatten(nn.Module):
+    def forward(self, x): return x.view(x.size(0), -1)
+
+class Residual(nn.Module):
+    def __init__(self, module):
+        super(Residual, self).__init__()
+        self.module = module
+    def forward(self, x): return x + self.module(x)
+
+def conv_bn(channels_in, channels_out, kernel_size=3, stride=1, padding=1, groups=1):
+    return nn.Sequential(
+            nn.Conv2d(channels_in, channels_out,
+                         kernel_size=kernel_size, stride=stride, padding=padding,
+                         groups=groups, bias=False),
+            nn.BatchNorm2d(channels_out),
+            nn.ReLU(inplace=True)
+    )
+
+#NUM_CLASSES = 10
+
+class ResNet9(nn.Module):
+    def __init__(self, NUM_CLASSES=10):
+        super(ResNet9, self).__init__()
+        self.model = nn.Sequential(
+            
+        conv_bn(3, 64, kernel_size=3, stride=1, padding=1),
+        conv_bn(64, 128, kernel_size=5, stride=2, padding=2),
+        Residual(nn.Sequential(conv_bn(128, 128), conv_bn(128, 128))),
+        conv_bn(128, 256, kernel_size=3, stride=1, padding=1),
+        nn.MaxPool2d(2),
+        Residual(nn.Sequential(conv_bn(256, 256), conv_bn(256, 256))),
+        conv_bn(256, 128, kernel_size=3, stride=1, padding=0),
+        nn.AdaptiveMaxPool2d((1, 1)),
+        Flatten(),
+        nn.Linear(128, NUM_CLASSES, bias=False),
+        Mul(0.2))
+        
+    def forward(self, x):
+        return self.model(x)
+
+#model = model.to(memory_format=torch.channels_last).cuda()
+
+
+from torch.cuda.amp import GradScaler, autocast
+from torch.optim import SGD, lr_scheduler
+
 def calc_acc(model, device, client_data, train):
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
-    acc = 0
     with torch.no_grad():
-        for (X,Y) in loader:
-            X = X.to(device)
-            pred = model(X).argmax(axis=1).detach().cpu()
-            acc += (Y == pred).float().mean()
-    acc = acc/len(loader)
-    acc *= 100.0
-    return acc
+        total_correct, total_num = 0., 0.
+        for ims, labs in loader:
+            with autocast():
+                out = model(ims)  # Test-time augmentation
+                total_correct += out.argmax(1).eq(labs).sum().cpu().item()
+                total_num += ims.shape[0]
+    
+    return total_correct*100.0/total_num
 
-
+import time
 class BaseTrainer(ABC):
     def __init__(self,config, save_dir):
         super(BaseTrainer, self).__init__()
@@ -217,28 +412,44 @@ class ClientTrainer(BaseTrainer):
     def train(self, client_data):
         train_loss_list = []
         test_acc_list = []
-        self.model.to(self.device)
+        self.model.to(memory_format = torch.channels_last).cuda()
+        #(self.device)
         self.model.train()
         optimizer = OPTIMIZER_LIST[self.config["optimizer"]](self.model.parameters(), **self.config["optimizer_params"])
+        iters_per_epoch = 50000//int(self.config['train_batch']*self.config['total_num_clients_per_cluster'])
+        epochs = self.config["iterations"]// iters_per_epoch
+        lr_schedule = np.interp(np.arange((epochs+1) * iters_per_epoch),
+                        [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
+                        [0, 1, 0])        
+        scheduler = lr_scheduler.LambdaLR(optimizer, lr_schedule.__getitem__)
+        scaler = GradScaler()
+        
         for iteration in tqdm(range(self.config["iterations"])):
-            self.model.zero_grad()
+            t0 = time.time()
+            optimizer.zero_grad(set_to_none=True)
             (X,Y) = client_data.sample_batch(train=True)
-            X = X.to(self.device)
-            Y = Y.to(self.device)
-            out = self.model(X)
-            loss = self.loss_func(out, Y)
-            loss.backward()
-            optimizer.step()
+            with autocast():
+                out = self.model(X)
+                loss = self.loss_func(out, Y)
+            
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+
             train_loss = loss.detach().cpu().numpy().item()
             train_loss_list.append(train_loss)
             test_acc = calc_acc(self.model, self.device, client_data, train=False)
             test_acc_list.append(test_acc)
             self.model.train()
+            t1 = time.time()
+            time_taken = t1 - t0
             if iteration % self.config["save_freq"] == 0 or iteration == self.config["iterations"] - 1:
                 self.save_model_weights()
                 self.save_metrics(train_loss_list, test_acc_list, iteration)
-            if iteration % self.config["print_freq"] == 0 or iteration == self.config["iterations"] - 1:
-                print("Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n".format(iteration,  train_loss, test_acc))
+               
+            if iteration% self.config["print_freq"] == 0 or iteration == self.config["iterations"] - 1: 
+                print("Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n, Time : {}\n".format(iteration,  train_loss, test_acc, time_taken))
                 
         self.model.eval()
         self.model.cpu()
@@ -254,16 +465,16 @@ class ClientTrainer(BaseTrainer):
 
 
   
-MODEL_LIST = {"lin" : SimpleLinear}
+MODEL_LIST = {"resnet" : ResNet, "cnn":Net, "resnet9": ResNet9}
 OPTIMIZER_LIST = {"sgd": optim.SGD, "adam": optim.Adam}
-LOSSES = {"cross_entropy": nn.CrossEntropyLoss()}
+LOSSES = {"cross_entropy": nn.CrossEntropyLoss(label_smoothing=0.1)}
 # config["save_dir"] = os.path.join("./results")
-config["iterations"] = 80
-config["optimizer_params"] = {"lr":0.001}
+config["iterations"] = 2400
+config["optimizer_params"] = {"lr":0.5, "momentum":0.9, "weight_decay":5e-4}
 config["save_freq"] = 2
-config["print_freq"]  = 20
-config["model"] = "lin"
-config["optimizer"] = "adam"
+config["print_freq"] = 200
+config["model"] = "resnet9"
+config["optimizer"] = "sgd"
 config["loss_func"] = "cross_entropy"
 #config["model_params"] = {"num_channels": 1 , "num_classes"  : 62}
 config["model_params"] = {}
@@ -275,10 +486,7 @@ client_trainers = [ClientTrainer(config,os.path.join(config["results_dir"], "ini
 for i in tqdm(range(config["num_clients"])):
     client_trainers[i].train(client_loaders[i])
     
-
-
-
-
+    
 import networkx as nx
 G = nx.Graph()
 G.add_nodes_from(range(config["num_clients"]))
@@ -287,7 +495,8 @@ def model_weights_diff(w_1, w_2):
     norm_sq = 0
     assert w_1.keys() == w_2.keys(), "Model weights have different keys"
     for key in w_1.keys():
-        norm_sq  += (w_1[key] - w_2[key]).norm()**2
+        if w_1[key].dtype == torch.float32:
+            norm_sq  += (w_1[key] - w_2[key]).norm()**2
     return np.sqrt(norm_sq)
 wt = client_trainers[0].model.state_dict()
 # thresh = 0
@@ -336,6 +545,10 @@ correlation_clustering(G)
 clusters = [cluster  for cluster in clustering if len(clustering) > 1 ]
 cluster_map = {i: clusters[i] for i in range(len(clusters))}
 beta = 0.2
+        
+        
+                
+            
 
 
 class ClusterTrainer(BaseTrainer):
@@ -348,42 +561,43 @@ class ClusterTrainer(BaseTrainer):
 
         train_loss_list = []
         test_acc_list = []
-        self.model.to(self.device)
+        self.model.to(memory_format = torch.channels_last).cuda()
         self.model.train()
-        
-        
         optimizer = OPTIMIZER_LIST[self.config["optimizer"]](self.model.parameters(), **self.config["optimizer_params"])
         #eff_num_workers = int(num_clients/(1 - 2*beta))
         # if eff_num_workers > 0:
         #     eff_batch_size = self.config["train_batch"]/eff_num_workers
         #     for i in range(num_clients):
         #         client_data_list[i].trainloader.batch_size = eff_batch_size
-                
+        
+        iters_per_epoch = 50000//int(self.config['train_batch']*self.config['total_num_clients_per_cluster'])
+        epochs = self.config["iterations"]// iters_per_epoch
+        lr_schedule = np.interp(np.arange((epochs+1) * iters_per_epoch),
+                        [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
+                        [0, 1, 0])        
+        scheduler = lr_scheduler.LambdaLR(optimizer, lr_schedule.__getitem__)
+        scaler = GradScaler()
+
         for iteration in tqdm(range(self.config["iterations"])):
+            t0 = time.time()
             trmean_buffer = {}
             for idx, param in self.model.named_parameters():
                 trmean_buffer[idx] = []
             train_loss = 0
-            #optimizer.zero_grad(set_to_none=True)
-
             for client in client_data_list:
-                #if eff_num_workers>0:
                 optimizer.zero_grad(set_to_none=True)
                 (X,Y) = client.sample_batch()
-                X = X.to(config["device"])
-                Y = Y.to(config["device"])
-                loss_func = nn.CrossEntropyLoss()
-                out = self.model(X)
-                loss = loss_func(out,Y)
-                loss.backward()
+                loss_func = nn.CrossEntropyLoss(label_smoothing=0.1)
+                with autocast():
+                    out = self.model(X)
+                    loss = loss_func(out,Y)
+                scaler.scale(loss).backward()
                 train_loss += loss.detach().cpu().numpy().item()
-                
                 with torch.no_grad():
                     for idx, param in self.model.named_parameters():
                         trmean_buffer[idx].append(param.grad.clone())
-            train_loss = train_loss/num_clients
-            optimizer.zero_grad()
-            
+
+            optimizer.zero_grad(set_to_none=True)
             start_idx = int(beta*num_clients)
             end_idx = int((1-beta)*num_clients)
             if end_idx <= start_idx + 1:
@@ -396,8 +610,10 @@ class ClusterTrainer(BaseTrainer):
                 new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
                 param.grad = new_grad
                 trmean_buffer[idx] = []
-            optimizer.step()
-            
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            train_loss = train_loss/num_clients
             train_loss_list.append(train_loss)
             test_acc = 0
             for client_data in client_data_list:
@@ -405,11 +621,15 @@ class ClusterTrainer(BaseTrainer):
             test_acc = test_acc/num_clients
             test_acc_list.append(test_acc)
             self.model.train()
+            t1 = time.time()
+            time_taken = t1 - t0
+
             if iteration % self.config["save_freq"] == 0 or iteration == self.config["iterations"] - 1:
                 self.save_model_weights()
                 self.save_metrics(train_loss_list, test_acc_list, iteration)
-            if iteration % self.config["print_freq"] == 0 or iteration == self.config["iterations"] - 1:
-                print("Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n".format(iteration,  train_loss, test_acc))
+               
+            if iteration% self.config["print_freq"] == 0: 
+                print("Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n, Time : {}\n".format(iteration,  train_loss, test_acc, time_taken))
                 
         self.model.eval()
         self.model.cpu()
@@ -425,27 +645,8 @@ class ClusterTrainer(BaseTrainer):
         self.model.cpu()
         return test_acc
 
-
+    
 config["refine_steps"] = 2
-def avg_acc(model_wts, client_data_list):
-    orig = model_wts[0]
-    if len(model_wts) > 0:
-        for wt in model_wts[1:]:
-            for key in orig.keys():
-                if orig[key].dtype == torch.float32:
-                    orig[key] += wt[key] 
-        for key in orig.keys():
-            if orig[key].dtype == torch.float32:
-                orig[key] = orig[key]/len(model_wts)
-    model = SimpleLinear()
-    model.load_state_dict(orig)
-    model.to(memory_format = torch.channels_last).cuda()
-    test_acc = 0
-    for client_data in client_data_list:
-        test_acc += calc_acc(model, torch.device("cuda:0"), client_data, train=False)
-    test_acc = test_acc/len(client_data_list)
-    return test_acc, orig
-
 for refine_step in tqdm(range(config["refine_steps"])):
     beta = 0.2
     cluster_trainers = []
@@ -502,63 +703,60 @@ for refine_step in tqdm(range(config["refine_steps"])):
         for j in merge_clusters[i]:
             cluster_map_new[i] += cluster_map[j]
     cluster_map = cluster_map_new
-    test_acc = 0
-    for cluster_id in tqdm(cluster_map.keys()):
-        cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
-        model_wts = [cluster_trainers[j].model.state_dict() for j in merge_clusters[cluster_id]]
-        test_acc_cluster, model_avg_wt =avg_acc(model_wts,cluster_clients)
-        torch.save(model_avg_wt, os.path.join(config['results_dir'], "refine_{}".format(refine_step), "merged_cluster_{}.pth".format(cluster_id)))
-        test_acc += test_acc_cluster
-    test_acc = test_acc/len(cluster_map.keys())
-    torch.save(test_acc, os.path.join(config['results_dir'], "refine_{}".format(refine_step), "avg_acc.pth"))
 
 
+        
+                
+   
+                
 
 class GlobalTrainer(BaseTrainer):
     def __init__(self,  config, save_dir):
         super(GlobalTrainer, self).__init__(config, save_dir)
-        
+    
     def train(self, client_data_list):
         num_clients = len(client_data_list)
 
         train_loss_list = []
         test_acc_list = []
-        self.model.to(self.device)
+        self.model.to(memory_format = torch.channels_last).cuda()
         self.model.train()
-        
-        
         optimizer = OPTIMIZER_LIST[self.config["optimizer"]](self.model.parameters(), **self.config["optimizer_params"])
         #eff_num_workers = int(num_clients/(1 - 2*beta))
         # if eff_num_workers > 0:
         #     eff_batch_size = self.config["train_batch"]/eff_num_workers
         #     for i in range(num_clients):
         #         client_data_list[i].trainloader.batch_size = eff_batch_size
-                
+        
+        iters_per_epoch = 50000//int(self.config['train_batch']*self.config['total_num_clients_per_cluster'])
+        epochs = self.config["iterations"]// iters_per_epoch
+        lr_schedule = np.interp(np.arange((epochs+1) * iters_per_epoch),
+                        [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
+                        [0, 1, 0])        
+        scheduler = lr_scheduler.LambdaLR(optimizer, lr_schedule.__getitem__)
+        scaler = GradScaler()
+
         for iteration in tqdm(range(self.config["iterations"])):
+            t0 = time.time()
             trmean_buffer = {}
             for idx, param in self.model.named_parameters():
                 trmean_buffer[idx] = []
             train_loss = 0
-            #optimizer.zero_grad(set_to_none=True)
-
+            optimizer.zero_grad(set_to_none=True)
             for client in client_data_list:
-                #if eff_num_workers>0:
                 optimizer.zero_grad(set_to_none=True)
                 (X,Y) = client.sample_batch()
-                X = X.to(config["device"])
-                Y = Y.to(config["device"])
-                loss_func = nn.CrossEntropyLoss()
-                out = self.model(X)
-                loss = loss_func(out,Y)
-                loss.backward()
+                loss_func = nn.CrossEntropyLoss(label_smoothing=0.1)
+                with autocast():
+                    out = self.model(X)
+                    loss = loss_func(out,Y)
+                scaler.scale(loss).backward()
                 train_loss += loss.detach().cpu().numpy().item()
-                
                 with torch.no_grad():
                     for idx, param in self.model.named_parameters():
                         trmean_buffer[idx].append(param.grad.clone())
-            train_loss = train_loss/num_clients
-            optimizer.zero_grad()
-            
+
+            optimizer.zero_grad(set_to_none=True)
             start_idx = 0
             end_idx = num_clients
 
@@ -568,8 +766,10 @@ class GlobalTrainer(BaseTrainer):
                 new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
                 param.grad = new_grad
                 trmean_buffer[idx] = []
-            optimizer.step()
-            
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            train_loss = train_loss/num_clients
             train_loss_list.append(train_loss)
             test_acc = 0
             for client_data in client_data_list:
@@ -577,11 +777,15 @@ class GlobalTrainer(BaseTrainer):
             test_acc = test_acc/num_clients
             test_acc_list.append(test_acc)
             self.model.train()
+            t1 = time.time()
+            time_taken = t1 - t0
+
             if iteration % self.config["save_freq"] == 0 or iteration == self.config["iterations"] - 1:
                 self.save_model_weights()
                 self.save_metrics(train_loss_list, test_acc_list, iteration)
-            if iteration % self.config["print_freq"] == 0 or iteration == self.config["iterations"] - 1:
-                print("Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n".format(iteration,  train_loss, test_acc))
+               
+            if iteration% self.config["print_freq"] == 0: 
+                print("Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n, Time : {}\n".format(iteration,  train_loss, test_acc, time_taken))
                 
         self.model.eval()
         self.model.cpu()
