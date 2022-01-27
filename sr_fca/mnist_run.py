@@ -18,7 +18,7 @@ import random
 
 
 config = {}
-config["seed"] = 42
+config["seed"] = 44
 seed = config["seed"]
 os.environ['PYTHONHASHSEED'] = str(seed)
 # Torch RNG
@@ -70,8 +70,13 @@ def make_client_datasets(config):
     for i in range(config["num_clusters"]):
         train_chunks, test_chunks = dataset_split(train_data, test_data, config["total_num_clients_per_cluster"], shuffle=True)
         chunks_idx = np.random.choice(np.arange(len(train_chunks)), size=config["num_clients_per_cluster"], replace=False).astype(int)
-        train_chunks = np.array(train_chunks)[chunks_idx].tolist()
-        test_chunks = np.array(test_chunks)[chunks_idx].tolist()
+        # train_chunks = np.array(train_chunks)[chunks_idx].tolist()
+        # test_chunks = np.array(test_chunks)[chunks_idx].tolist()
+        #train_chunks = np.array(train_chunks)[chunks_idx].tolist()
+        #test_chunks = np.array(test_chunks)[chunks_idx].tolist()
+        train_chunks = [train_chunks[idx] for idx in chunks_idx]
+        test_chunks = [test_chunks[idx] for idx in chunks_idx]
+
         train_chunks_total += train_chunks
         test_chunks_total += test_chunks
     return train_chunks_total, test_chunks_total
@@ -100,8 +105,8 @@ class Client():
     def __init__(self, train_data, test_data, client_id,  train_transforms, test_transforms, train_batch_size, test_batch_size, save_dir):
         self.trainset = ClientDataset(train_data, train_transforms)
         self.testset = ClientDataset(test_data, test_transforms)
-        self.trainloader = DataLoader(self.trainset, batch_size = train_batch_size, shuffle=True, num_workers=4)
-        self.testloader = DataLoader(self.testset, batch_size = test_batch_size, shuffle=False, num_workers=4)
+        self.trainloader = DataLoader(self.trainset, batch_size = train_batch_size, shuffle=True, num_workers=1)
+        self.testloader = DataLoader(self.testset, batch_size = test_batch_size, shuffle=False, num_workers=1)
         self.train_iterator = iter(self.trainloader)
         self.test_iterator = iter(self.testloader)
         self.client_id = client_id
@@ -122,7 +127,7 @@ class Client():
         return (data, labels)
 train_chunks, test_chunks = make_client_datasets(config)
 
-config["train_batch"] = 128
+config["train_batch"] = 64
 config["test_batch"] = 512
 client_loaders = []
 for i in range(config["num_clusters"]):
@@ -422,8 +427,27 @@ class ClusterTrainer(BaseTrainer):
 
 
 config["refine_steps"] = 2
+def avg_acc(model_wts, client_data_list):
+    orig = model_wts[0]
+    if len(model_wts) > 0:
+        for wt in model_wts[1:]:
+            for key in orig.keys():
+                if orig[key].dtype == torch.float32:
+                    orig[key] += wt[key] 
+        for key in orig.keys():
+            if orig[key].dtype == torch.float32:
+                orig[key] = orig[key]/len(model_wts)
+    model = SimpleLinear()
+    model.load_state_dict(orig)
+    model.to(memory_format = torch.channels_last).cuda()
+    test_acc = 0
+    for client_data in client_data_list:
+        test_acc += calc_acc(model, torch.device("cuda:0"), client_data, train=False)
+    test_acc = test_acc/len(client_data_list)
+    return test_acc, orig
+
 for refine_step in tqdm(range(config["refine_steps"])):
-    beta = 0.3
+    beta = 0.2
     cluster_trainers = []
     for cluster_id in tqdm(cluster_map.keys()):
         cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
@@ -478,6 +502,16 @@ for refine_step in tqdm(range(config["refine_steps"])):
         for j in merge_clusters[i]:
             cluster_map_new[i] += cluster_map[j]
     cluster_map = cluster_map_new
+    test_acc = 0
+    for cluster_id in tqdm(cluster_map.keys()):
+        cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
+        model_wts = [cluster_trainers[j].model.state_dict() for j in merge_clusters[cluster_id]]
+        test_acc_cluster, model_avg_wt =avg_acc(model_wts,cluster_clients)
+        torch.save(model_avg_wt, os.path.join(config['results_dir'], "refine_{}".format(refine_step), "merged_cluster_{}.pth".format(cluster_id)))
+        test_acc += test_acc_cluster
+    test_acc = test_acc/len(cluster_map.keys())
+    torch.save(test_acc, os.path.join(config['results_dir'], "refine_{}".format(refine_step), "avg_acc.pth"))
+
 
 
 class GlobalTrainer(BaseTrainer):
