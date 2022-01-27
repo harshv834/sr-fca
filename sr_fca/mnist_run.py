@@ -29,8 +29,8 @@ torch.cuda.manual_seed_all(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-config["participation_ratio"] = 0.05
-config["total_num_clients_per_cluster"] = 160
+config["participation_ratio"] = 0.1
+config["total_num_clients_per_cluster"] = 80
 config["num_clients_per_cluster"] = int(config["participation_ratio"]*config["total_num_clients_per_cluster"])
 config["num_clusters"] = 4
 config["num_clients"] = config["num_clients_per_cluster"]*config["num_clusters"]
@@ -100,8 +100,8 @@ class Client():
     def __init__(self, train_data, test_data, client_id,  train_transforms, test_transforms, train_batch_size, test_batch_size, save_dir):
         self.trainset = ClientDataset(train_data, train_transforms)
         self.testset = ClientDataset(test_data, test_transforms)
-        self.trainloader = DataLoader(self.trainset, batch_size = train_batch_size, shuffle=True, num_workers=1)
-        self.testloader = DataLoader(self.testset, batch_size = test_batch_size, shuffle=False, num_workers=1)
+        self.trainloader = DataLoader(self.trainset, batch_size = train_batch_size, shuffle=True, num_workers=4)
+        self.testloader = DataLoader(self.testset, batch_size = test_batch_size, shuffle=False, num_workers=4)
         self.train_iterator = iter(self.trainloader)
         self.test_iterator = iter(self.testloader)
         self.client_id = client_id
@@ -253,7 +253,7 @@ MODEL_LIST = {"lin" : SimpleLinear}
 OPTIMIZER_LIST = {"sgd": optim.SGD, "adam": optim.Adam}
 LOSSES = {"cross_entropy": nn.CrossEntropyLoss()}
 # config["save_dir"] = os.path.join("./results")
-config["iterations"] = 50
+config["iterations"] = 80
 config["optimizer_params"] = {"lr":0.001}
 config["save_freq"] = 2
 config["print_freq"]  = 20
@@ -330,7 +330,7 @@ correlation_clustering(G)
 #t = config["t"]
 clusters = [cluster  for cluster in clustering if len(clustering) > 1 ]
 cluster_map = {i: clusters[i] for i in range(len(clusters))}
-beta = 0.3
+beta = 0.2
 
 
 class ClusterTrainer(BaseTrainer):
