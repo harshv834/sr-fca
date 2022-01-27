@@ -29,9 +29,9 @@ torch.cuda.manual_seed_all(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-config["participation_ratio"] = 0.1
-config["total_num_clients_per_cluster"] = 80
-config["num_clients_per_cluster"] = int(config["participation_ratio"]*config["total_num_clients"])
+config["participation_ratio"] = 0.05
+config["total_num_clients_per_cluster"] = 160
+config["num_clients_per_cluster"] = int(config["participation_ratio"]*config["total_num_clients_per_cluster"])
 config["num_clusters"] = 4
 config["num_clients"] = config["num_clients_per_cluster"]*config["num_clusters"]
 config["dataset"] = "mnist"
@@ -69,9 +69,9 @@ def make_client_datasets(config):
     test_data = (test_dataset.data, test_dataset.targets)
     for i in range(config["num_clusters"]):
         train_chunks, test_chunks = dataset_split(train_data, test_data, config["total_num_clients_per_cluster"], shuffle=True)
-        chunks_idx = random.choice(len(train_chunks), config["num_clients_per_cluster"])
-        train_chunks = train_chunks[chunks_idx]
-        test_chunks = train_chunks[chunks_idx]
+        chunks_idx = np.random.choice(np.arange(len(train_chunks)), size=config["num_clients_per_cluster"], replace=False).astype(int)
+        train_chunks = np.array(train_chunks)[chunks_idx].tolist()
+        test_chunks = np.array(test_chunks)[chunks_idx].tolist()
         train_chunks_total += train_chunks
         test_chunks_total += test_chunks
     return train_chunks_total, test_chunks_total
@@ -253,7 +253,7 @@ MODEL_LIST = {"lin" : SimpleLinear}
 OPTIMIZER_LIST = {"sgd": optim.SGD, "adam": optim.Adam}
 LOSSES = {"cross_entropy": nn.CrossEntropyLoss()}
 # config["save_dir"] = os.path.join("./results")
-config["iterations"] = 80
+config["iterations"] = 50
 config["optimizer_params"] = {"lr":0.001}
 config["save_freq"] = 2
 config["print_freq"]  = 20
@@ -299,7 +299,7 @@ for pair in all_pairs:
     norm_diff = model_weights_diff(w_1, w_2)
     arr.append(norm_diff)
 #thresh = torch.mean(torch.tensor(arr))
-thresh = arr[torch.tensor(arr).argsort()[int(0.36*len(arr))-1]]
+thresh = arr[torch.tensor(arr).argsort()[int(0.3*len(arr))-1]]
 for i in range(len(all_pairs)):
     if arr[i] < thresh:
         G.add_edge(all_pairs[i][0], all_pairs[i][1])
@@ -348,7 +348,7 @@ class ClusterTrainer(BaseTrainer):
         
         
         optimizer = OPTIMIZER_LIST[self.config["optimizer"]](self.model.parameters(), **self.config["optimizer_params"])
-        eff_num_workers = int(num_clients/(1 - 2*beta))
+        #eff_num_workers = int(num_clients/(1 - 2*beta))
         # if eff_num_workers > 0:
         #     eff_batch_size = self.config["train_batch"]/eff_num_workers
         #     for i in range(num_clients):
@@ -359,11 +359,11 @@ class ClusterTrainer(BaseTrainer):
             for idx, param in self.model.named_parameters():
                 trmean_buffer[idx] = []
             train_loss = 0
-            optimizer.zero_grad(set_to_none=True)
+            #optimizer.zero_grad(set_to_none=True)
 
             for client in client_data_list:
-                if eff_num_workers>0:
-                    optimizer.zero_grad(set_to_none=True)
+                #if eff_num_workers>0:
+                optimizer.zero_grad(set_to_none=True)
                 (X,Y) = client.sample_batch()
                 X = X.to(config["device"])
                 Y = Y.to(config["device"])
@@ -372,23 +372,25 @@ class ClusterTrainer(BaseTrainer):
                 loss = loss_func(out,Y)
                 loss.backward()
                 train_loss += loss.detach().cpu().numpy().item()
-                if eff_num_workers>0:
-                    with torch.no_grad():
-                        for idx, param in self.model.named_parameters():
-                            trmean_buffer[idx].append(param.grad.clone())
+                
+                with torch.no_grad():
+                    for idx, param in self.model.named_parameters():
+                        trmean_buffer[idx].append(param.grad.clone())
             train_loss = train_loss/num_clients
-            if eff_num_workers>0:
-                optimizer.zero_grad()
-                for idx, param in self.model.named_parameters():
-                    sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
-                    start_idx = int(beta*num_clients)
-                    end_idx = int((1-beta)*num_clients)
-                    if end_idx < start_idx + 1:
-                        start_idx = 0
-                        end_idx = num_clients - 1
-                    new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
-                    param.grad = new_grad
-                    trmean_buffer[idx] = []
+            optimizer.zero_grad()
+            
+            start_idx = int(beta*num_clients)
+            end_idx = int((1-beta)*num_clients)
+            if end_idx <= start_idx + 1:
+                start_idx = 0
+                end_idx = num_clients
+
+
+            for idx, param in self.model.named_parameters():
+                sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
+                new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
+                param.grad = new_grad
+                trmean_buffer[idx] = []
             optimizer.step()
             
             train_loss_list.append(train_loss)
@@ -401,7 +403,7 @@ class ClusterTrainer(BaseTrainer):
             if iteration % self.config["save_freq"] == 0 or iteration == self.config["iterations"] - 1:
                 self.save_model_weights()
                 self.save_metrics(train_loss_list, test_acc_list)
-            if iteration % self.config["print_freq"] == 0:
+            if iteration % self.config["print_freq"] == 0 or iteration == self.config["iterations"] - 1:
                 print("Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n".format(iteration,  train_loss, test_acc))
                 
         self.model.eval()
@@ -446,9 +448,13 @@ for refine_step in tqdm(range(config["refine_steps"])):
                 norm_diff = curr_norm_diff
         
         cluster_map_recluster[new_cluster_id].append(i)
+    keys = list(cluster_map_recluster.keys()).copy()
+    for key in keys:
+        if len(cluster_map_recluster[key]) == 0:
+            cluster_map_recluster.pop(key)
     cluster_map = cluster_map_recluster
 
-
+    
     G = nx.Graph()
     G.add_nodes_from(cluster_map.keys())
 
@@ -462,7 +468,8 @@ for refine_step in tqdm(range(config["refine_steps"])):
     G = G.to_undirected()
     clustering = []        
     correlation_clustering(G)
-    merge_clusters = [cluster  for cluster in clustering]
+    merge_clusters = [cluster  for cluster in clustering if len(cluster) > 0]
+    
     #merge_cluster_map = {i: clusters[i] for i in range(len(clusters))}
     #clusters = list(nx.algorithms.clique.enumerate_all_cliques(G))
     cluster_map_new = {}
@@ -487,12 +494,22 @@ class GlobalTrainer(BaseTrainer):
         
         
         optimizer = OPTIMIZER_LIST[self.config["optimizer"]](self.model.parameters(), **self.config["optimizer_params"])
+        #eff_num_workers = int(num_clients/(1 - 2*beta))
+        # if eff_num_workers > 0:
+        #     eff_batch_size = self.config["train_batch"]/eff_num_workers
+        #     for i in range(num_clients):
+        #         client_data_list[i].trainloader.batch_size = eff_batch_size
                 
         for iteration in tqdm(range(self.config["iterations"])):
+            trmean_buffer = {}
+            for idx, param in self.model.named_parameters():
+                trmean_buffer[idx] = []
             train_loss = 0
-            optimizer.zero_grad(set_to_none=True)
+            #optimizer.zero_grad(set_to_none=True)
 
             for client in client_data_list:
+                #if eff_num_workers>0:
+                optimizer.zero_grad(set_to_none=True)
                 (X,Y) = client.sample_batch()
                 X = X.to(config["device"])
                 Y = Y.to(config["device"])
@@ -501,7 +518,22 @@ class GlobalTrainer(BaseTrainer):
                 loss = loss_func(out,Y)
                 loss.backward()
                 train_loss += loss.detach().cpu().numpy().item()
+                
+                with torch.no_grad():
+                    for idx, param in self.model.named_parameters():
+                        trmean_buffer[idx].append(param.grad.clone())
             train_loss = train_loss/num_clients
+            optimizer.zero_grad()
+            
+            start_idx = 0
+            end_idx = num_clients
+
+
+            for idx, param in self.model.named_parameters():
+                sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
+                new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
+                param.grad = new_grad
+                trmean_buffer[idx] = []
             optimizer.step()
             
             train_loss_list.append(train_loss)
@@ -514,7 +546,7 @@ class GlobalTrainer(BaseTrainer):
             if iteration % self.config["save_freq"] == 0 or iteration == self.config["iterations"] - 1:
                 self.save_model_weights()
                 self.save_metrics(train_loss_list, test_acc_list)
-            if iteration % self.config["print_freq"] == 0:
+            if iteration % self.config["print_freq"] == 0 or iteration == self.config["iterations"] - 1:
                 print("Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n".format(iteration,  train_loss, test_acc))
                 
         self.model.eval()
