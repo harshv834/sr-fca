@@ -1,3 +1,7 @@
+
+
+
+
 import torch
 import numpy as np
 from torch.utils.data import Dataset, DataLoader 
@@ -9,12 +13,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import random
-
-
-
-
+import json
+from collections import OrderedDict
 config = {}
-config["seed"] = 44
+config["seed"] = 50
 seed = config["seed"]
 os.environ['PYTHONHASHSEED'] = str(seed)
 # Torch RNG
@@ -25,59 +27,60 @@ torch.cuda.manual_seed_all(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-config["participation_ratio"] = 0.1
-config["total_num_clients_per_cluster"] = 80
-config["num_clients_per_cluster"] = int(config["participation_ratio"]*config["total_num_clients_per_cluster"])
-config["num_clusters"] = 4
-config["num_clients"] = config["num_clients_per_cluster"]*config["num_clusters"]
-config["dataset"] = "mnist"
-DATASET_LIB = {"mnist" : torchvision.datasets.MNIST, "emnist": torchvision.datasets.EMNIST, "cifar10": torchvision.datasets.CIFAR10}
-config["dataset_dir"] = "./experiments/dataset"
+config["participation_ratio"] = 0.05/6
+#config["total_num_clients_per_cluster"] = 80
+#config["num_clients_per_cluster"] = int(config["participation_ratio"]*config["total_num_clients_per_cluster"])
+#config["num_clusters"] = 4
+#config["num_clients"] = config["num_clients_per_cluster"]*config["num_clusters"]
+config["dataset"] = "femnist"
+#DATASET_LIB = {"mnist" : torchvision.datasets.MNIST, "emnist": torchvision.datasets.EMNIST, "cifar10": torchvision.datasets.CIFAR10}
+config["dataset_dir"] = "./experiments/dataset/leaf/data/femnist/data"
 config["results_dir"] = "./experiments/results"
 config["results_dir"] = os.path.join(config["results_dir"], config["dataset"], "seed_{}".format(seed))
-
 os.makedirs(config["results_dir"], exist_ok=True)
 
-def split(dataset_size, num_clients, shuffle):
-    split_idx = []
-    all_idx = np.arange(dataset_size)
-    if shuffle:
-        all_idx = np.random.permutation(all_idx)
-    split_idx = np.array_split(all_idx, num_clients)
-    return split_idx
+from collections import defaultdict
+def read_dir(data_dir):
+    clients = []
+    groups = []
+    data = defaultdict(lambda : None)
 
-def dataset_split(train_data, test_data, num_clients, shuffle):
-    train_size = train_data[0].shape[0]
-    train_split_idx = split(train_size, num_clients, shuffle)
-    train_chunks = [(train_data[0][train_split_idx[client]], train_data[1][train_split_idx[client]]) for client in range(num_clients)]
-    test_size = test_data[0].shape[0]
-    test_split_idx = split(test_size, num_clients, shuffle)
-    test_chunks = [(test_data[0][test_split_idx[client]], test_data[1][test_split_idx[client]]) for client in range(num_clients)]
-    return train_chunks, test_chunks
+    files = os.listdir(data_dir)
+    files = [f for f in files if f.endswith('.json')]
+    for f in files:
+        file_path = os.path.join(data_dir,f)
+        with open(file_path, 'r') as inf:
+            cdata = json.load(inf)
+        clients.extend(cdata['users'])
+        if 'hierarchies' in cdata:
+            groups.extend(cdata['hierarchies'])
+        data.update(cdata['user_data'])
 
-def make_client_datasets(config):
-    train_chunks_total = []
-    test_chunks_total = []
-    train_dataset = DATASET_LIB[config["dataset"]](root = config['dataset_dir'], download = True, train=True)
-    test_dataset = DATASET_LIB[config["dataset"]](root = config['dataset_dir'], download = True, train=False)
-
-    train_data = (train_dataset.data, train_dataset.targets)
-    test_data = (test_dataset.data, test_dataset.targets)
-    for i in range(config["num_clusters"]):
-        train_chunks, test_chunks = dataset_split(train_data, test_data, config["total_num_clients_per_cluster"], shuffle=True)
-        chunks_idx = np.random.choice(np.arange(len(train_chunks)), size=config["num_clients_per_cluster"], replace=False).astype(int)
-        # train_chunks = np.array(train_chunks)[chunks_idx].tolist()
-        # test_chunks = np.array(test_chunks)[chunks_idx].tolist()
-        #train_chunks = np.array(train_chunks)[chunks_idx].tolist()
-        #test_chunks = np.array(test_chunks)[chunks_idx].tolist()
-        train_chunks = [train_chunks[idx] for idx in chunks_idx]
-        test_chunks = [test_chunks[idx] for idx in chunks_idx]
-
-        train_chunks_total += train_chunks
-        test_chunks_total += test_chunks
-    return train_chunks_total, test_chunks_total
+    clients = list(sorted(data.keys()))
+    return clients, groups, data
 
 
+def read_data(train_data_dir, test_data_dir):
+    '''parses data in given train and test data directories
+    assumes:
+    - the data in the input directories are .json files with 
+        keys 'users' and 'user_data'
+    - the set of train set users is the same as the set of test set users
+    
+    Return:
+        clients: list of client ids
+        groups: list of group ids; empty list if none found
+        train_data: dictionary of train data
+        test_data: dictionary of test data
+    '''
+    train_clients, train_groups, train_data = read_dir(train_data_dir)
+    test_clients, test_groups, test_data = read_dir(test_data_dir)
+
+    assert train_clients == test_clients
+    assert train_groups == test_groups
+
+    return train_clients, train_groups, train_data, test_data
+config["total_clients"], _, train_data, test_data = read_data(os.path.join(config["dataset_dir"],"train"), os.path.join(config["dataset_dir"],"test"))
 class ClientDataset(Dataset):
     def __init__(self, data,transforms = None):
         super(ClientDataset,self).__init__()
@@ -89,13 +92,13 @@ class ClientDataset(Dataset):
         return len(self.data)
     
     def __getitem__(self,idx):
-        idx_data = self.data[idx]
+        idx_data = self.data[idx].reshape(28,28)
         if self.transforms is not None:
             transformed_data =self.transforms(idx_data)
         else:
             transformed_data = idx_data
         idx_labels = self.labels[idx]
-        return (transformed_data.unsqueeze(0).float(), idx_labels)
+        return (transformed_data.float(), idx_labels)
 
 class Client():
     def __init__(self, train_data, test_data, client_id,  train_transforms, test_transforms, train_batch_size, test_batch_size, save_dir):
@@ -121,57 +124,84 @@ class Client():
                 iterator = self.test_iterator
             (data, labels) = next(iterator)
         return (data, labels)
-train_chunks, test_chunks = make_client_datasets(config)
-
 config["train_batch"] = 64
 config["test_batch"] = 512
+config["num_clients"] = int(len(config["total_clients"])/6)
+config["selected_clients"] = random.sample(config["total_clients"], config["num_clients"])
+with open(os.path.join(config["results_dir"], "selected_clients.json"), "w") as f:
+    json.dump(config["selected_clients"], f)
 client_loaders = []
-for i in range(config["num_clusters"]):
-    for j in range(config["num_clients_per_cluster"]):
-        idx = i * config["num_clients_per_cluster"] + j
-        x_train = train_chunks[idx][0]
-        x_test = test_chunks[idx][0]
-        if i >0:
-            x_train = torch.rot90(x_train, i, [1, 2])
-            x_test = torch.rot90(x_test, i, [1, 2])
+for client_id in config["selected_clients"]:
         client_loaders.append(
             Client(
-                (x_train, train_chunks[idx][1]),
-                (x_test, test_chunks[idx][1]),
-                idx,
-                train_transforms=None,
-                test_transforms=None,
+                (np.array(train_data[client_id]['x']), np.array(train_data[client_id]['y'])),
+                (np.array(test_data[client_id]['x']), np.array(test_data[client_id]['y'])),
+                client_id,
+                train_transforms=torchvision.transforms.ToTensor(),
+                test_transforms=torchvision.transforms.ToTensor(),
                 train_batch_size=config["train_batch"],
                 test_batch_size=config["test_batch"],
                 save_dir=config["results_dir"],
             )
         )
-class SimpleLinear(torch.nn.Module):
+
+class SimpleCNN(torch.nn.Module):
 
     def __init__(self, h1=2048):
         super().__init__()
-        self.fc1 = torch.nn.Linear(28*28, h1)
-        self.fc2 = torch.nn.Linear(h1, 10)
+        self.conv1 = torch.nn.Conv2d(1, 32, kernel_size = (5,5), padding="same")
+        self.pool1 = torch.nn.MaxPool2d((2,2), stride=2)
+        self.conv2 = torch.nn.Conv2d(32, 64, kernel_size= (5,5), padding = "same")
+        self.pool2 = torch.nn.MaxPool2d((2,2), stride=2)
+        self.fc1 = torch.nn.Linear(64*7*7, 2048)
+        self.fc2 = torch.nn.Linear(2048, 62)
 
     def forward(self, x):
-        x = x.view(-1, 28 * 28)
+        x = F.relu(self.conv1(x))
+        x = self.pool1(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = self.pool2(x)
+        x = x.flatten(start_dim=1)
         x = F.relu(self.fc1(x))
-        # x = F.sigmoid(self.fc1(x))
         x = self.fc2(x)
         return x
-    
-    
-    
+
+def set_weights(model):
+    model_wt = torch.load('./model_wt_dict.pt')
+    new_wts = OrderedDict()
+    new_wts['fc2.weight'] = torch.Tensor(model_wt["dense_1/kernel"]).t()
+    new_wts['fc2.bias'] = torch.Tensor(model_wt["dense_1/bias"])
+    new_wts['fc1.weight'] = torch.Tensor(model_wt["dense/kernel"]).t()
+    new_wts['fc1.bias'] = torch.Tensor(model_wt["dense/bias"])
+    new_wts["conv1.weight"] = torch.Tensor(model_wt["conv2d/kernel"]).permute(3,2,0,1)
+    new_wts["conv2.weight"] = torch.Tensor(model_wt["conv2d_1/kernel"]).permute(3,2,0,1)
+    new_wts["conv1.bias"] = torch.Tensor(model_wt["conv2d/bias"])
+    new_wts["conv2.bias"] = torch.Tensor(model_wt["conv2d_1/bias"])
+    model.load_state_dict(new_wts)
+    model.conv1.weight.requires_grad =False
+    model.conv2.weight.requires_grad =False
+    model.fc1.weight.requires_grad =True
+    model.fc2.weight.requires_grad =True
+    model.conv1.bias.requires_grad =False
+    model.conv2.bias.requires_grad =False
+    model.fc1.bias.requires_grad =True
+    model.fc2.bias.requires_grad =True
+    return model
+
 def calc_acc(model, device, client_data, train):
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
-    acc = 0
+    model.to(device)
+    num_corr = 0
+    tot_num = 0
     with torch.no_grad():
         for (X,Y) in loader:
             X = X.to(device)
             pred = model(X).argmax(axis=1).detach().cpu()
-            acc += (Y == pred).float().mean()
-    acc = acc/len(loader)
+            num_corr += (Y == pred).float().sum()
+            tot_num += Y.shape[0]
+    acc = num_corr/tot_num
     acc *= 100.0
     return acc
 
@@ -179,7 +209,7 @@ def calc_acc(model, device, client_data, train):
 class BaseTrainer(ABC):
     def __init__(self,config, save_dir):
         super(BaseTrainer, self).__init__()
-        self.model = MODEL_LIST[config["model"]](**config["model_params"])
+        self.model = set_weights(MODEL_LIST[config["model"]](**config["model_params"]))
         self.save_dir = save_dir
         self.device = config["device"]
         self.loss_func = LOSSES[config["loss_func"]]
@@ -249,31 +279,27 @@ class ClientTrainer(BaseTrainer):
         return acc
 
 
-  
-MODEL_LIST = {"lin" : SimpleLinear}
+
+MODEL_LIST = {"cnn" : SimpleCNN}
 OPTIMIZER_LIST = {"sgd": optim.SGD, "adam": optim.Adam}
 LOSSES = {"cross_entropy": nn.CrossEntropyLoss()}
 # config["save_dir"] = os.path.join("./results")
-config["iterations"] = 80
+config["iterations"] = 100
 config["optimizer_params"] = {"lr":0.001}
 config["save_freq"] = 2
 config["print_freq"]  = 20
-config["model"] = "lin"
+config["model"] = "cnn"
 config["optimizer"] = "adam"
 config["loss_func"] = "cross_entropy"
 #config["model_params"] = {"num_channels": 1 , "num_classes"  : 62}
 config["model_params"] = {}
 config["device"] = torch.device("cuda:0")
 import pickle
-client_trainers = [ClientTrainer(config,os.path.join(config["results_dir"], "init", "node_{}".format(i)), i) for i in range(config["num_clients"])]
+client_trainers = [ClientTrainer(config,os.path.join(config["results_dir"], "init", client_id), client_id) for client_id in config["selected_clients"]]
 
 
-for i in tqdm(range(config["num_clients"])):
+for i in tqdm(range(len(config["selected_clients"]))):
     client_trainers[i].train(client_loaders[i])
-    
-
-
-
 
 import networkx as nx
 G = nx.Graph()
@@ -286,11 +312,6 @@ def model_weights_diff(w_1, w_2):
         norm_sq  += (w_1[key] - w_2[key]).norm()**2
     return np.sqrt(norm_sq)
 wt = client_trainers[0].model.state_dict()
-# thresh = 0
-# for key in wt.keys():
-#     thresh += wt[key].norm()**2
-# print(torch.sqrt(thresh))
-# thresh = 37.68
 
 all_pairs = list(itertools.combinations(range(config["num_clients"]),2))
 arr = []
@@ -305,8 +326,6 @@ for i in range(len(all_pairs)):
     if arr[i] < thresh:
         G.add_edge(all_pairs[i][0], all_pairs[i][1])
 G = G.to_undirected()
-#cliques = list(nx.algorithms.clique.enumerate_all_cliques(G))
-
 
 clustering = []
 def correlation_clustering(G):
@@ -326,13 +345,9 @@ def correlation_clustering(G):
         correlation_clustering(G)
 correlation_clustering(G)
 
-
-#config["t"] = 7
-#t = config["t"]
-clusters = [cluster  for cluster in clustering if len(clustering) > 1 ]
+clusters = [cluster  for cluster in clustering if len(cluster) > 1 ]
 cluster_map = {i: clusters[i] for i in range(len(clusters))}
-beta = 0.2
-
+beta = 0.125
 
 class ClusterTrainer(BaseTrainer):
     def __init__(self,  config, save_dir,cluster_id):
@@ -358,7 +373,8 @@ class ClusterTrainer(BaseTrainer):
         for iteration in tqdm(range(self.config["iterations"])):
             trmean_buffer = {}
             for idx, param in self.model.named_parameters():
-                trmean_buffer[idx] = []
+                if param.requires_grad:
+                    trmean_buffer[idx] = []
             train_loss = 0
             #optimizer.zero_grad(set_to_none=True)
 
@@ -376,7 +392,8 @@ class ClusterTrainer(BaseTrainer):
                 
                 with torch.no_grad():
                     for idx, param in self.model.named_parameters():
-                        trmean_buffer[idx].append(param.grad.clone())
+                        if param.requires_grad:
+                            trmean_buffer[idx].append(param.grad.clone())
             train_loss = train_loss/num_clients
             optimizer.zero_grad()
             
@@ -388,10 +405,11 @@ class ClusterTrainer(BaseTrainer):
 
 
             for idx, param in self.model.named_parameters():
-                sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
-                new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
-                param.grad = new_grad
-                trmean_buffer[idx] = []
+                if param.requires_grad:
+                    sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
+                    new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
+                    param.grad = new_grad
+                    trmean_buffer[idx] = []
             optimizer.step()
             
             train_loss_list.append(train_loss)
@@ -422,7 +440,6 @@ class ClusterTrainer(BaseTrainer):
         return test_acc
 
 
-config["refine_steps"] = 2
 def avg_acc(model_wts, client_data_list):
     orig = model_wts[0]
     if len(model_wts) > 0:
@@ -433,7 +450,7 @@ def avg_acc(model_wts, client_data_list):
         for key in orig.keys():
             if orig[key].dtype == torch.float32:
                 orig[key] = orig[key]/len(model_wts)
-    model = SimpleLinear()
+    model = SimpleCNN()
     model.load_state_dict(orig)
     model.to(memory_format = torch.channels_last).cuda()
     test_acc = 0
@@ -442,8 +459,10 @@ def avg_acc(model_wts, client_data_list):
     test_acc = test_acc/len(client_data_list)
     return test_acc, orig
 
+config["refine_steps"] = 2
+
 for refine_step in tqdm(range(config["refine_steps"])):
-    beta = 0.2
+    beta = 0.125
     cluster_trainers = []
     for cluster_id in tqdm(cluster_map.keys()):
         cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
@@ -509,7 +528,6 @@ for refine_step in tqdm(range(config["refine_steps"])):
     torch.save(test_acc, os.path.join(config['results_dir'], "refine_{}".format(refine_step), "avg_acc.pth"))
 
 
-
 class GlobalTrainer(BaseTrainer):
     def __init__(self,  config, save_dir):
         super(GlobalTrainer, self).__init__(config, save_dir)
@@ -533,7 +551,8 @@ class GlobalTrainer(BaseTrainer):
         for iteration in tqdm(range(self.config["iterations"])):
             trmean_buffer = {}
             for idx, param in self.model.named_parameters():
-                trmean_buffer[idx] = []
+                if param.requires_grad:
+                    trmean_buffer[idx] = []
             train_loss = 0
             #optimizer.zero_grad(set_to_none=True)
 
@@ -551,7 +570,8 @@ class GlobalTrainer(BaseTrainer):
                 
                 with torch.no_grad():
                     for idx, param in self.model.named_parameters():
-                        trmean_buffer[idx].append(param.grad.clone())
+                        if param.requires_grad:
+                            trmean_buffer[idx].append(param.grad.clone())
             train_loss = train_loss/num_clients
             optimizer.zero_grad()
             
@@ -560,10 +580,11 @@ class GlobalTrainer(BaseTrainer):
 
 
             for idx, param in self.model.named_parameters():
-                sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
-                new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
-                param.grad = new_grad
-                trmean_buffer[idx] = []
+                if param.requires_grad:
+                    sorted, _  = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
+                    new_grad = sorted[start_idx:end_idx,...].mean(dim=0)
+                    param.grad = new_grad
+                    trmean_buffer[idx] = []
             optimizer.step()
             
             train_loss_list.append(train_loss)

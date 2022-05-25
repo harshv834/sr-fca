@@ -2,19 +2,7 @@
 
 
 
-import torch
-import numpy as np
-from torch.utils.data import Dataset, DataLoader 
-from abc import ABC
-from tqdm import tqdm
-import torchvision
-import os
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import random
-
-
+from globals import *
 
 
 config = {}
@@ -35,7 +23,6 @@ config["num_clients_per_cluster"] = int(config["participation_ratio"]*config["to
 config["num_clusters"] = 4
 config["num_clients"] = config["num_clients_per_cluster"]*config["num_clusters"]
 config["dataset"] = "mnist"
-DATASET_LIB = {"mnist" : torchvision.datasets.MNIST, "emnist": torchvision.datasets.EMNIST, "cifar10": torchvision.datasets.CIFAR10}
 config["dataset_dir"] = "./experiments/dataset"
 config["results_dir"] = "./experiments/results"
 config["results_dir"] = os.path.join(config["results_dir"], config["dataset"], "seed_{}".format(seed))
@@ -333,7 +320,7 @@ correlation_clustering(G)
 
 #config["t"] = 7
 #t = config["t"]
-clusters = [cluster  for cluster in clustering if len(clustering) > 1 ]
+clusters = [cluster  for cluster in clustering if len(cluster) > 1 ]
 cluster_map = {i: clusters[i] for i in range(len(clusters))}
 beta = 0.2
 

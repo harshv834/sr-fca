@@ -14,7 +14,7 @@ import random
 
 
 config = {}
-config["seed"] = 42
+config["seed"] = 1231
 seed = config["seed"]
 os.environ['PYTHONHASHSEED'] = str(seed)
 # Torch RNG
@@ -207,20 +207,6 @@ for i in range(config["num_clusters"]):
     for j in range(config["num_clients_per_cluster"]):
         idx = i * config["num_clients_per_cluster"] + j
         
-        
-        # train_transforms = transforms.Compose(
-        #     [
-        #         transforms.RandomCrop(32, padding=4),
-        #         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        #     ]
-        # )
-
-        # test_transforms = transforms.Compose(
-        #     [
-        #         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        #     ]
-        # )
-
         label_pipeline: List[Operation] = [IntDecoder(), ToTensor(), ToDevice("cuda:0"), Squeeze()]
         train_image_pipeline: List[Operation] = [   
             SimpleRGBImageDecoder(),
@@ -243,18 +229,10 @@ for i in range(config["num_clusters"]):
             transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
         ]
 
-        # x_train = torch.as_tensor(train_chunks[idx][0]).float()
-        # x_test = torch.as_tensor(test_chunks[idx][0]).float()
-        # x_train = x_train.permute(0, 3, 1, 2)
-        # x_test = x_test.permute(0, 3, 1, 2)
 
         if i > 0:
             train_image_pipeline.extend([transforms.RandomRotation((180,180))])
             test_image_pipeline.extend([transforms.RandomRotation((180,180))])
-        #     x_train = torch.rot90(x_train, i * 2, [2, 3])
-        #     x_test = torch.rot90(x_test, i * 2, [2, 3])
-        # x_train = x_train.permute(0, 2, 3, 1)
-        # x_train = x_train.permute(0, 2, 3, 1)
 
         client_loaders.append(
             Client(
@@ -469,10 +447,10 @@ MODEL_LIST = {"resnet" : ResNet, "cnn":Net, "resnet9": ResNet9}
 OPTIMIZER_LIST = {"sgd": optim.SGD, "adam": optim.Adam}
 LOSSES = {"cross_entropy": nn.CrossEntropyLoss(label_smoothing=0.1)}
 # config["save_dir"] = os.path.join("./results")
-config["iterations"] = 2400
+config["iterations"] = 100
 config["optimizer_params"] = {"lr":0.5, "momentum":0.9, "weight_decay":5e-4}
 config["save_freq"] = 2
-config["print_freq"] = 200
+config["print_freq"] = 20
 config["model"] = "resnet9"
 config["optimizer"] = "sgd"
 config["loss_func"] = "cross_entropy"
@@ -722,11 +700,6 @@ class GlobalTrainer(BaseTrainer):
         self.model.to(memory_format = torch.channels_last).cuda()
         self.model.train()
         optimizer = OPTIMIZER_LIST[self.config["optimizer"]](self.model.parameters(), **self.config["optimizer_params"])
-        #eff_num_workers = int(num_clients/(1 - 2*beta))
-        # if eff_num_workers > 0:
-        #     eff_batch_size = self.config["train_batch"]/eff_num_workers
-        #     for i in range(num_clients):
-        #         client_data_list[i].trainloader.batch_size = eff_batch_size
         
         iters_per_epoch = 50000//int(self.config['train_batch']*self.config['total_num_clients_per_cluster'])
         epochs = self.config["iterations"]// iters_per_epoch
