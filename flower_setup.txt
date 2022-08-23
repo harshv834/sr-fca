@@ -1,0 +1,17 @@
+git clone git@github.com:adap/flower.git
+cd flower
+conda create -n flower python=3.7.12
+conda activate flower
+
+# Upgrade/install spcific versions of `pip`, `setuptools`, and `poetry`
+python -m pip install -U pip==22.2
+python -m pip install -U setuptools==63.2.0
+python -m pip install -U poetry==1.1.14
+
+python -m poetry install \
+  --extras "simulation"
+
+
+conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch
+
+python client.py
