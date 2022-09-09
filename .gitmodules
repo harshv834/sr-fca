@@ -1,3 +1,6 @@
 [submodule "flwr"]
 	path = flwr
 	url = git@github.com:adap/flower.git
+[submodule "cfl"]
+	path = cfl
+	url = git@github.com:felisat/clustered-federated-learning.git

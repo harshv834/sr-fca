@@ -12,7 +12,7 @@ import random
 
 
 config = {}
-config["seed"] = 1231
+config["seed"] = 12313
 seed = config["seed"]
 os.environ["PYTHONHASHSEED"] = str(seed)
 # Torch RNG
@@ -59,7 +59,7 @@ class ClientDataset(Dataset):
         else:
             transformed_data = idx_data
         idx_labels = self.labels[idx]
-        return (transformed_data.float(), idx_labels)
+        return (transformed_data, idx_labels)
 
 
 class Client:
@@ -68,14 +68,12 @@ class Client:
         train_data,
         test_data,
         client_id,
-        train_transforms,
-        test_transforms,
         train_batch_size,
         test_batch_size,
         save_dir,
     ):
-        self.trainset = ClientDataset(train_data, train_transforms)
-        self.testset = ClientDataset(test_data, test_transforms)
+        self.trainset = ClientDataset(train_data)
+        self.testset = ClientDataset(test_data)
         self.trainloader = DataLoader(
             self.trainset, batch_size=train_batch_size, shuffle=True, num_workers=1
         )
@@ -104,14 +102,13 @@ class Client:
 
 def generate_data(config):
     d = 30
-    w_mid = 10 * np.random.rand(d)
     w_delta = np.random.rand(d)
-    w_delta = 10 * w_delta / np.linalg.norm(w_delta)
-    w_1 = w_mid + w_delta
-    w_2 = w_mid - w_delta
-    sigma = 1
-    zeta = 10
-    num_training_points = 200
+    w_delta =  w_delta / np.linalg.norm(w_delta)
+    w_1 =  2*w_delta
+    w_2 = -2* w_delta
+    sigma = 0.05
+    zeta = 1
+    num_training_points = 100
     train_data = []
     test_data = []
     w_list = [w_1, w_2]
@@ -119,12 +116,12 @@ def generate_data(config):
         for _ in range(config["num_clients_per_cluster"]):
             X_train = np.random.rand(num_training_points, d) * zeta
             y_train = (
-                X_train @ w_list[i] + np.random.rand(num_training_points, d) * sigma
+                X_train @ w_list[i] + np.random.rand(num_training_points) * sigma
             )
-            train_data.append({"x": X_train, "y": y_train})
+            train_data.append({"x": torch.Tensor(X_train), "y":  torch.Tensor(y_train)})
             X_test = np.random.rand(num_training_points, d) * zeta
-            y_test = X_test @ w_list[i] + np.random.rand(num_training_points, d) * sigma
-            test_data.append({"x": X_test, "y": y_test})
+            y_test = X_test @ w_list[i] + np.random.rand(num_training_points) * sigma
+            test_data.append({"x":  torch.Tensor(X_test), "y":  torch.Tensor(y_test)})
 
     return train_data, test_data
 
@@ -143,8 +140,6 @@ for client_id in range(config["num_clients"]):
             ),
             (np.array(test_data[client_id]["x"]), np.array(test_data[client_id]["y"])),
             client_id,
-            train_transforms=torchvision.transforms.ToTensor(),
-            test_transforms=torchvision.transforms.ToTensor(),
             train_batch_size=config["train_batch"],
             test_batch_size=config["test_batch"],
             save_dir=config["results_dir"],
@@ -170,7 +165,7 @@ def calc_mse(model, device, client_data, train):
     with torch.no_grad():
         for (X, Y) in loader:
             X = X.to(device)
-            pred = model(X).detach().cpu()
+            pred = model(X).detach().cpu().reshape(-1,)
             sq_err += (Y - pred).float().square().sum()
             tot_num += Y.shape[0]
     mse = sq_err / tot_num
@@ -204,9 +199,9 @@ class BaseTrainer(ABC):
         model_path = os.path.join(self.save_dir, "model.pth")
         torch.save(self.model.state_dict(), model_path)
 
-    def save_metrics(self, train_loss, test_acc, iteration):
+    def save_metrics(self, train_loss, test_mse, iteration):
         torch.save(
-            {"train_loss": train_loss, "test_acc": test_acc},
+            {"train_loss": train_loss, "test_mse": test_mse},
             os.path.join(self.save_dir, "metrics_{}.pkl".format(iteration)),
         )
 
@@ -224,12 +219,13 @@ class ClientTrainer(BaseTrainer):
         optimizer = OPTIMIZER_LIST[self.config["optimizer"]](
             self.model.parameters(), **self.config["optimizer_params"]
         )
-        for iteration in tqdm(range(self.config["iterations"])):
+        for iteration in range(self.config["iterations"]):
             self.model.zero_grad()
             (X, Y) = client_data.sample_batch(train=True)
             X = X.to(self.device)
             Y = Y.to(self.device)
-            out = self.model(X)
+            out = self.model(X).reshape(-1,)
+            # import ipdb; ipdb.set_trace()
             loss = self.loss_func(out, Y)
             loss.backward()
             optimizer.step()
@@ -267,15 +263,15 @@ class ClientTrainer(BaseTrainer):
 
 
 OPTIMIZER_LIST = {"sgd": optim.SGD, "adam": optim.Adam}
-LOSSES = {"cross_entropy": nn.CrossEntropyLoss()}
+LOSSES = {"mse": nn.MSELoss()}
 # config["save_dir"] = os.path.join("./results")
 config["iterations"] = 100
 config["optimizer_params"] = {"lr": 0.001}
 config["save_freq"] = 2
-config["print_freq"] = 20
+config["print_freq"] = 200
 config["model"] = "cnn"
 config["optimizer"] = "adam"
-config["loss_func"] = "cross_entropy"
+config["loss_func"] = "mse"
 # config["model_params"] = {"num_channels": 1 , "num_classes"  : 62}
 config["model_params"] = {}
 config["device"] = torch.device("cuda:0")
@@ -283,13 +279,13 @@ import pickle
 
 client_trainers = [
     ClientTrainer(
-        config, os.path.join(config["results_dir"], "init", client_id), client_id
+        config, os.path.join(config["results_dir"], "init", str(client_id)), client_id
     )
-    for client_id in config["selected_clients"]
+    for client_id in range(config["num_clients"])
 ]
 
 
-for i in tqdm(range(len(config["selected_clients"]))):
+for i in tqdm(range(config["num_clients"])):
     client_trainers[i].train(client_loaders[i])
 
 
@@ -308,7 +304,7 @@ def model_weights_diff(w_1, w_2):
     return np.sqrt(norm_sq)
 
 
-thresh = 5
+thresh = 0.5
 
 
 all_pairs = list(itertools.combinations(range(config["num_clients"]), 2))
@@ -319,6 +315,7 @@ for pair in all_pairs:
     norm_diff = model_weights_diff(w_1, w_2)
     arr.append(norm_diff)
 
+thresh = arr[torch.tensor(arr).argsort()[int(0.3 * len(arr)) - 1]]
 
 for i in range(len(all_pairs)):
     if arr[i] < thresh:
@@ -354,15 +351,16 @@ beta = 0.15
 
 
 class ClusterTrainer(BaseTrainer):
-    def __init__(self, config, save_dir, cluster_id):
+    def __init__(self, config, save_dir, cluster_id, mode="trmean"):
         super(ClusterTrainer, self).__init__(config, save_dir)
         self.cluster_id = cluster_id
+        self.mode = mode
 
     def train(self, client_data_list):
         num_clients = len(client_data_list)
 
         train_loss_list = []
-        test_acc_list = []
+        test_mse_list = []
         self.model.to(self.device)
         self.model.train()
 
@@ -375,7 +373,7 @@ class ClusterTrainer(BaseTrainer):
         #     for i in range(num_clients):
         #         client_data_list[i].trainloader.batch_size = eff_batch_size
 
-        for iteration in tqdm(range(self.config["iterations"])):
+        for iteration in range(self.config["iterations"]):
             trmean_buffer = {}
             for idx, param in self.model.named_parameters():
                 if param.requires_grad:
@@ -389,8 +387,8 @@ class ClusterTrainer(BaseTrainer):
                 (X, Y) = client.sample_batch()
                 X = X.to(config["device"])
                 Y = Y.to(config["device"])
-                loss_func = nn.CrossEntropyLoss()
-                out = self.model(X)
+                loss_func = nn.MSELoss()
+                out = self.model(X).reshape(-1)
                 loss = loss_func(out, Y)
                 loss.backward()
                 train_loss += loss.detach().cpu().numpy().item()
@@ -404,7 +402,7 @@ class ClusterTrainer(BaseTrainer):
 
             start_idx = int(beta * num_clients)
             end_idx = int((1 - beta) * num_clients)
-            if end_idx <= start_idx + 1:
+            if end_idx <= start_idx + 1 or self.mode != "trmean":
                 start_idx = 0
                 end_idx = num_clients
 
@@ -419,25 +417,25 @@ class ClusterTrainer(BaseTrainer):
             optimizer.step()
 
             train_loss_list.append(train_loss)
-            test_acc = 0
+            test_mse = 0
             for client_data in client_data_list:
-                test_acc += calc_mse(self.model, self.device, client_data, train=False)
-            test_acc = test_acc / num_clients
-            test_acc_list.append(test_acc)
+                test_mse += calc_mse(self.model, self.device, client_data, train=False)
+            test_mse = test_mse / num_clients
+            test_mse_list.append(test_mse)
             self.model.train()
             if (
                 iteration % self.config["save_freq"] == 0
                 or iteration == self.config["iterations"] - 1
             ):
                 self.save_model_weights()
-                self.save_metrics(train_loss_list, test_acc_list, iteration)
+                self.save_metrics(train_loss_list, test_mse_list, iteration)
             if (
                 iteration % self.config["print_freq"] == 0
                 or iteration == self.config["iterations"] - 1
             ):
                 print(
-                    "Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n".format(
-                        iteration, train_loss, test_acc
+                    "Iteration : {} \n , Train Loss : {} \n, Test mse : {} \n".format(
+                        iteration, train_loss, test_mse
                     )
                 )
 
@@ -448,11 +446,11 @@ class ClusterTrainer(BaseTrainer):
         self.load_model_weights()
         self.model.eval()
         self.model.to(self.device)
-        test_acc = 0
+        test_mse = 0
         for client_data in client_data_list:
-            test_acc += calc_mse(self.model, self.device, client_data, train=False)
+            test_mse += calc_mse(self.model, self.device, client_data, train=False)
         self.model.cpu()
-        return test_acc
+        return test_mse
 
 
 def avg_mse(model_wts, client_data_list):
@@ -468,11 +466,11 @@ def avg_mse(model_wts, client_data_list):
     model = SimpleLinear()
     model.load_state_dict(orig)
     model.to(memory_format=torch.channels_last).cuda()
-    test_acc = 0
+    test_mse = 0
     for client_data in client_data_list:
-        test_acc += calc_mse(model, torch.device("cuda:0"), client_data, train=False)
-    test_acc = test_acc / len(client_data_list)
-    return test_acc, orig
+        test_mse += calc_mse(model, torch.device("cuda:0"), client_data, train=False)
+    test_mse = test_mse / len(client_data_list)
+    return test_mse, orig
 
 
 config["refine_steps"] = 2
@@ -545,13 +543,13 @@ for refine_step in tqdm(range(config["refine_steps"])):
         for j in merge_clusters[i]:
             cluster_map_new[i] += cluster_map[j]
     cluster_map = cluster_map_new
-    test_acc = 0
+    test_mse = 0
     for cluster_id in tqdm(cluster_map.keys()):
         cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
         model_wts = [
             cluster_trainers[j].model.state_dict() for j in merge_clusters[cluster_id]
         ]
-        test_acc_cluster, model_avg_wt = avg_mse(model_wts, cluster_clients)
+        test_mse_cluster, model_avg_wt = avg_mse(model_wts, cluster_clients)
         torch.save(
             model_avg_wt,
             os.path.join(
@@ -560,12 +558,12 @@ for refine_step in tqdm(range(config["refine_steps"])):
                 "merged_cluster_{}.pth".format(cluster_id),
             ),
         )
-        test_acc += test_acc_cluster
-    test_acc = test_acc / len(cluster_map.keys())
+        test_mse += test_mse_cluster
+    test_mse = test_mse / len(cluster_map.keys())
     torch.save(
-        test_acc,
+        test_mse,
         os.path.join(
-            config["results_dir"], "refine_{}".format(refine_step), "avg_acc.pth"
+            config["results_dir"], "refine_{}".format(refine_step), "avg_mse.pth"
         ),
     )
 
@@ -578,7 +576,7 @@ class GlobalTrainer(BaseTrainer):
         num_clients = len(client_data_list)
 
         train_loss_list = []
-        test_acc_list = []
+        test_mse_list = []
         self.model.to(self.device)
         self.model.train()
 
@@ -591,7 +589,7 @@ class GlobalTrainer(BaseTrainer):
         #     for i in range(num_clients):
         #         client_data_list[i].trainloader.batch_size = eff_batch_size
 
-        for iteration in tqdm(range(self.config["iterations"])):
+        for iteration in range(self.config["iterations"]):
             trmean_buffer = {}
             for idx, param in self.model.named_parameters():
                 if param.requires_grad:
@@ -605,8 +603,8 @@ class GlobalTrainer(BaseTrainer):
                 (X, Y) = client.sample_batch()
                 X = X.to(config["device"])
                 Y = Y.to(config["device"])
-                loss_func = nn.CrossEntropyLoss()
-                out = self.model(X)
+                loss_func = nn.MSELoss()
+                out = self.model(X).reshape(-1,)
                 loss = loss_func(out, Y)
                 loss.backward()
                 train_loss += loss.detach().cpu().numpy().item()
@@ -632,25 +630,25 @@ class GlobalTrainer(BaseTrainer):
             optimizer.step()
 
             train_loss_list.append(train_loss)
-            test_acc = 0
+            test_mse = 0
             for client_data in client_data_list:
-                test_acc += calc_mse(self.model, self.device, client_data, train=False)
-            test_acc = test_acc / num_clients
-            test_acc_list.append(test_acc)
+                test_mse += calc_mse(self.model, self.device, client_data, train=False)
+            test_mse = test_mse / num_clients
+            test_mse_list.append(test_mse)
             self.model.train()
             if (
                 iteration % self.config["save_freq"] == 0
                 or iteration == self.config["iterations"] - 1
             ):
                 self.save_model_weights()
-                self.save_metrics(train_loss_list, test_acc_list, iteration)
+                self.save_metrics(train_loss_list, test_mse_list, iteration)
             if (
                 iteration % self.config["print_freq"] == 0
                 or iteration == self.config["iterations"] - 1
             ):
                 print(
-                    "Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n".format(
-                        iteration, train_loss, test_acc
+                    "Iteration : {} \n , Train Loss : {} \n, Test mse : {} \n".format(
+                        iteration, train_loss, test_mse
                     )
                 )
 
@@ -661,20 +659,86 @@ class GlobalTrainer(BaseTrainer):
         self.load_model_weights()
         self.model.eval()
         self.model.to(self.device)
-        test_acc = 0
+        test_mse = 0
         for client_data in client_data_list:
-            test_acc += calc_mse(self.model, self.device, client_data, train=False)
+            test_mse += calc_mse(self.model, self.device, client_data, train=False)
         self.model.cpu()
-        return test_acc
+        return test_mse
 
 
 global_trainer = GlobalTrainer(config, os.path.join(config["results_dir"], "global"))
 global_trainer.train(client_loaders)
 
+
+
+
 # class IFCATrainer(BaseTrainer):
+config["num_clusters"] = 2
+
+def init_cluster_map(num_clusters, client_list):
+    cluster_map = {}
+    for i in range(num_clusters):
+        cluster_map[i] = []
+    for i, _ in enumerate(client_list):
+        cluster_map[i%num_clusters].append(i)
+    return cluster_map
+cluster_map = init_cluster_map(config["num_clusters"], range(config["num_clients"]))
+
+
+
+cluster_trainers = []
+for cluster_id in cluster_map.keys():
+    cluster_trainers.append(ClusterTrainer(config,"", cluster_id,mode="ifca"))
     
+def calc_loss(model, device, client_data, train,loss_func):
+    loader = client_data.trainloader if train else client_data.testloader
+    model.eval()
+    model.to(device)
+    tot_loss = 0
+    tot_num = 0
+    with torch.no_grad():
+        for (X,Y) in loader:
+            X = X.to(device)
+            out = model(X).detach().cpu()
+            loss = loss_func(out,Y).item()
+            tot_loss += loss
+            tot_num += Y.shape[0]
+    avg_loss = tot_loss/tot_num
+    return avg_loss
+def recluster(config, cluster_trainers, client_loaders):
+    new_map = {}
+    for i in range(len(cluster_trainers)):
+        new_map[i] = []
+    for client_id, client in enumerate(client_loaders):
+        best_loss = np.infty
+        best_cluster_idx = 0
+        for cluster_id, trainer in enumerate(cluster_trainers):
+            client_loss = calc_loss(trainer.model, config["device"], client, train=True, loss_func = nn.MSELoss())
+            if best_loss > client_loss:
+                best_loss = client_loss
+                best_cluster_idx = cluster_id
+        new_map[best_cluster_idx].append(client_id)
+    return new_map
+
+
+config["num_rounds"] = 3
+for round_idx in tqdm(range(config["num_rounds"])):
+    cluster_map = recluster(config, cluster_trainers, client_loaders)
+    os.makedirs(os.path.join(config["results_dir"], "round_{}".format(round_idx)), exist_ok=True)
+    with open(os.path.join(config["results_dir"],"round_{}".format(round_idx), "cluster_maps.pkl"), 'wb') as handle:
+            pickle.dump(cluster_map, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    for cluster_id, cluster_clients in cluster_map.items():
+        cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
+        cluster_trainers[cluster_id].save_dir = os.path.join(config['results_dir'], "round_{}".format(round_idx), "cluster_{}".format(cluster_id))
+        cluster_trainers[cluster_id].train(cluster_clients)
+    if round_idx == config["num_rounds"]-1:
+        with open(os.path.join(config["results_dir"], "final_cluster_map.pkl"), 'wb') as handle:
+            pickle.dump(cluster_map, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
 # class MOCHATrainer(BaseTrainer):
     
 # class SattlerTrainer(BaseTrainer):
     
+
+
+
