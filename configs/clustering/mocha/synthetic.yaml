@@ -1,0 +1,30 @@
+name: synthetic
+num_clusters: 2
+num_clients: 100
+dimension: 1000
+num_samples:
+  train: 100
+  test: 100
+noise_scale: 0.001
+scale: 1
+path: ../experiments/synthetic/
+batch:
+  train: 50
+  test: 512
+# {
+#     "m" : 100,
+#     "p" : 2,
+
+#     "n" : 100,
+#     "d" : 1000,
+
+#     "r" : 1.0,
+
+#     "noise_scale": 0.001,
+
+#     "num_epochs": 300,
+#     "score":"set",
+#     "lr":0.1,
+#     "data_seed":0,
+#     "train_seed":0
+# }

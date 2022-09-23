@@ -5,14 +5,19 @@ FROM gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp:latest
 SHELL ["/bin/bash", "--login", "-c"]
 
 ### Install vim
-RUN sudo-apt get update
-RUN sudo apt-get install vim
+RUN sudo apt-get update
+RUN sudo apt-get install vim tmux htop -y
 
 
-## Conda init
-RUN conda init bash
 
 ## Create environment and install flower
-RUN conda create -n flower_ffcv python=3.9 cupy pkg-config compilers libjpeg-turbo opencv pytorch torchvision cudatoolkit=11.3 numba -c pytorch -c conda-forge
-RUN conda activate ffcv
-RUN pip install --pre flwr[simulation]
+RUN conda create -n cluster_fl python=3.9 cupy pkg-config compilers libjpeg-turbo opencv pytorch torchvision cudatoolkit=11.3 numba pytorch-c pytorch -c conda-forge
+RUN source activate cluster_fl
+## Conda init
+SHELL ["conda", "run", "-n", "cluster_fl", "/bin/bash", "-c"]
+
+RUN pip install ffcv
+## See lightning 
+
+## flwr works with python 3.7 only so it is irrelevant.
+#RUN pip install --pre flwr[simulation]

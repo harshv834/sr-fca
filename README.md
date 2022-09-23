@@ -74,3 +74,18 @@ We used 2 random seeds and all the experiments took around 4 days to run on a si
 Use the same random seed for ifca and sr-fca.
 
 
+
+
+## Main Requirements --
+ - Run function runs everything according to arguments. Hyperparameter tuning generates hyperparameter configs for each case.
+ - Add tensorboard logging
+ - Different datasets (Real and simulated)
+ - Different optimizers
+ - Different FL schedules and subalgos
+ - Parameter config for every choice of running config
+ - Diffferent datasets and their evaluation params
+ - Different algorithms ( SR -FCA)
+ - Different distance metrics and different threshold selection techniques
+ - run file should return all parameters.
+ - Run base optimization in parallel (as parallel as possible)
+ - Model structure tied to problem.( Let's say this is not customizable)

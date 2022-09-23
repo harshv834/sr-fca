@@ -42,70 +42,12 @@ config["results_dir"] = os.path.join(
 )
 
 
-class ClientDataset(Dataset):
-    def __init__(self, data, transforms=None):
-        super(ClientDataset, self).__init__()
-        self.data = data[0]
-        self.labels = data[1]
-        self.transforms = transforms
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        idx_data = self.data[idx]
-        if self.transforms is not None:
-            transformed_data = self.transforms(idx_data)
-        else:
-            transformed_data = idx_data
-        idx_labels = self.labels[idx]
-        return (transformed_data, idx_labels)
-
-
-class Client:
-    def __init__(
-        self,
-        train_data,
-        test_data,
-        client_id,
-        train_batch_size,
-        test_batch_size,
-        save_dir,
-    ):
-        self.trainset = ClientDataset(train_data)
-        self.testset = ClientDataset(test_data)
-        self.trainloader = DataLoader(
-            self.trainset, batch_size=train_batch_size, shuffle=True, num_workers=1
-        )
-        self.testloader = DataLoader(
-            self.testset, batch_size=test_batch_size, shuffle=False, num_workers=1
-        )
-        self.train_iterator = iter(self.trainloader)
-        self.test_iterator = iter(self.testloader)
-        self.client_id = client_id
-        self.save_dir = os.path.join(save_dir, "init", "client_{}".format(client_id))
-
-    def sample_batch(self, train=True):
-        iterator = self.train_iterator if train else self.test_iterator
-        try:
-            (data, labels) = next(iterator)
-        except StopIteration:
-            if train:
-                self.train_iterator = iter(self.trainloader)
-                iterator = self.train_iterator
-            else:
-                self.test_iterator = iter(self.testloader)
-                iterator = self.test_iterator
-            (data, labels) = next(iterator)
-        return (data, labels)
-
-
 def generate_data(config):
     d = 30
     w_delta = np.random.rand(d)
-    w_delta =  w_delta / np.linalg.norm(w_delta)
-    w_1 =  2*w_delta
-    w_2 = -2* w_delta
+    w_delta = w_delta / np.linalg.norm(w_delta)
+    w_1 = 2 * w_delta
+    w_2 = -2 * w_delta
     sigma = 0.05
     zeta = 1
     num_training_points = 100
@@ -115,13 +57,11 @@ def generate_data(config):
     for i in range(config["num_clusters"]):
         for _ in range(config["num_clients_per_cluster"]):
             X_train = np.random.rand(num_training_points, d) * zeta
-            y_train = (
-                X_train @ w_list[i] + np.random.rand(num_training_points) * sigma
-            )
-            train_data.append({"x": torch.Tensor(X_train), "y":  torch.Tensor(y_train)})
+            y_train = X_train @ w_list[i] + np.random.rand(num_training_points) * sigma
+            train_data.append({"x": torch.Tensor(X_train), "y": torch.Tensor(y_train)})
             X_test = np.random.rand(num_training_points, d) * zeta
             y_test = X_test @ w_list[i] + np.random.rand(num_training_points) * sigma
-            test_data.append({"x":  torch.Tensor(X_test), "y":  torch.Tensor(y_test)})
+            test_data.append({"x": torch.Tensor(X_test), "y": torch.Tensor(y_test)})
 
     return train_data, test_data
 
@@ -153,7 +93,7 @@ class SimpleLinear(nn.Module):
         self.fc = nn.Linear(30, 1)
 
     def forward(self, x):
-        return self.fc(x)
+        return self.fc(x).view(-1)
 
 
 def calc_mse(model, device, client_data, train):
@@ -165,7 +105,14 @@ def calc_mse(model, device, client_data, train):
     with torch.no_grad():
         for (X, Y) in loader:
             X = X.to(device)
-            pred = model(X).detach().cpu().reshape(-1,)
+            pred = (
+                model(X)
+                .detach()
+                .cpu()
+                .reshape(
+                    -1,
+                )
+            )
             sq_err += (Y - pred).float().square().sum()
             tot_num += Y.shape[0]
     mse = sq_err / tot_num
@@ -224,7 +171,9 @@ class ClientTrainer(BaseTrainer):
             (X, Y) = client_data.sample_batch(train=True)
             X = X.to(self.device)
             Y = Y.to(self.device)
-            out = self.model(X).reshape(-1,)
+            out = self.model(X).reshape(
+                -1,
+            )
             # import ipdb; ipdb.set_trace()
             loss = self.loss_func(out, Y)
             loss.backward()
@@ -314,6 +263,7 @@ for pair in all_pairs:
     w_2 = client_trainers[pair[1]].model.state_dict()
     norm_diff = model_weights_diff(w_1, w_2)
     arr.append(norm_diff)
+thresh = arr[torch.tensor(arr).argsort()[int(0.3 * len(arr)) - 1]]
 
 thresh = arr[torch.tensor(arr).argsort()[int(0.3 * len(arr)) - 1]]
 
@@ -604,7 +554,9 @@ class GlobalTrainer(BaseTrainer):
                 X = X.to(config["device"])
                 Y = Y.to(config["device"])
                 loss_func = nn.MSELoss()
-                out = self.model(X).reshape(-1,)
+                out = self.model(X).reshape(
+                    -1,
+                )
                 loss = loss_func(out, Y)
                 loss.backward()
                 train_loss += loss.detach().cpu().numpy().item()
@@ -670,41 +622,44 @@ global_trainer = GlobalTrainer(config, os.path.join(config["results_dir"], "glob
 global_trainer.train(client_loaders)
 
 
-
-
 # class IFCATrainer(BaseTrainer):
 config["num_clusters"] = 2
+
 
 def init_cluster_map(num_clusters, client_list):
     cluster_map = {}
     for i in range(num_clusters):
         cluster_map[i] = []
     for i, _ in enumerate(client_list):
-        cluster_map[i%num_clusters].append(i)
+        cluster_map[i % num_clusters].append(i)
     return cluster_map
-cluster_map = init_cluster_map(config["num_clusters"], range(config["num_clients"]))
 
+
+cluster_map = init_cluster_map(config["num_clusters"], range(config["num_clients"]))
 
 
 cluster_trainers = []
 for cluster_id in cluster_map.keys():
-    cluster_trainers.append(ClusterTrainer(config,"", cluster_id,mode="ifca"))
-    
-def calc_loss(model, device, client_data, train,loss_func):
+    cluster_trainers.append(ClusterTrainer(config, "", cluster_id, mode="ifca"))
+
+
+def calc_loss(model, device, client_data, train, loss_func):
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
     model.to(device)
     tot_loss = 0
     tot_num = 0
     with torch.no_grad():
-        for (X,Y) in loader:
+        for (X, Y) in loader:
             X = X.to(device)
             out = model(X).detach().cpu()
-            loss = loss_func(out,Y).item()
+            loss = loss_func(out, Y).item()
             tot_loss += loss
             tot_num += Y.shape[0]
-    avg_loss = tot_loss/tot_num
+    avg_loss = tot_loss / tot_num
     return avg_loss
+
+
 def recluster(config, cluster_trainers, client_loaders):
     new_map = {}
     for i in range(len(cluster_trainers)):
@@ -713,7 +668,13 @@ def recluster(config, cluster_trainers, client_loaders):
         best_loss = np.infty
         best_cluster_idx = 0
         for cluster_id, trainer in enumerate(cluster_trainers):
-            client_loss = calc_loss(trainer.model, config["device"], client, train=True, loss_func = nn.MSELoss())
+            client_loss = calc_loss(
+                trainer.model,
+                config["device"],
+                client,
+                train=True,
+                loss_func=nn.MSELoss(),
+            )
             if best_loss > client_loss:
                 best_loss = client_loss
                 best_cluster_idx = cluster_id
@@ -724,21 +685,30 @@ def recluster(config, cluster_trainers, client_loaders):
 config["num_rounds"] = 3
 for round_idx in tqdm(range(config["num_rounds"])):
     cluster_map = recluster(config, cluster_trainers, client_loaders)
-    os.makedirs(os.path.join(config["results_dir"], "round_{}".format(round_idx)), exist_ok=True)
-    with open(os.path.join(config["results_dir"],"round_{}".format(round_idx), "cluster_maps.pkl"), 'wb') as handle:
-            pickle.dump(cluster_map, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    os.makedirs(
+        os.path.join(config["results_dir"], "round_{}".format(round_idx)), exist_ok=True
+    )
+    with open(
+        os.path.join(
+            config["results_dir"], "round_{}".format(round_idx), "cluster_maps.pkl"
+        ),
+        "wb",
+    ) as handle:
+        pickle.dump(cluster_map, handle, protocol=pickle.HIGHEST_PROTOCOL)
     for cluster_id, cluster_clients in cluster_map.items():
         cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
-        cluster_trainers[cluster_id].save_dir = os.path.join(config['results_dir'], "round_{}".format(round_idx), "cluster_{}".format(cluster_id))
+        cluster_trainers[cluster_id].save_dir = os.path.join(
+            config["results_dir"],
+            "round_{}".format(round_idx),
+            "cluster_{}".format(cluster_id),
+        )
         cluster_trainers[cluster_id].train(cluster_clients)
-    if round_idx == config["num_rounds"]-1:
-        with open(os.path.join(config["results_dir"], "final_cluster_map.pkl"), 'wb') as handle:
+    if round_idx == config["num_rounds"] - 1:
+        with open(
+            os.path.join(config["results_dir"], "final_cluster_map.pkl"), "wb"
+        ) as handle:
             pickle.dump(cluster_map, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    
+
 # class MOCHATrainer(BaseTrainer):
-    
+
 # class SattlerTrainer(BaseTrainer):
-    
-
-
-

@@ -1,0 +1,34 @@
+model: simplelin
+dist_threshold: 0.5
+size_threshold: 1
+optimizer:
+  name: adam
+  params:
+    lr: 0.001
+local_steps: 5
+iterations: 100
+num_refine_steps: 2
+beta: 0.15
+num_clients_per_round: 3
+init:
+  iterations: 100
+refine:
+  local_iter: 5
+  rounds: 20
+# {
+#     "m" : 100,
+#     "p" : 2,
+
+#     "n" : 100,
+#     "d" : 1000,
+
+#     "r" : 1.0,
+
+#     "noise_scale": 0.001,
+
+#     "num_epochs": 300,
+#     "score":"set",
+#     "lr":0.1,
+#     "data_seed":0,
+#     "train_seed":0
+# }
