@@ -1,0 +1,10 @@
+num_clients: 6
+dataset: 
+  name: inv_mnist
+  num_clusters: 2
+  input_size : 784
+  num_classes : 10
+path: experiments/inv_mnist/
+batch:
+  train: 50
+  test: 512

@@ -1,7 +1,11 @@
 from src.utils import args_getter
 from src.datasets.base import FLDataset
 from src.clustering import CLUSTERING_DICT
+from tqdm import tqdm
+from functools import partialmethod
+from time import time
 
+tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 # ## Find the correct import statement for this
 # class Runner(ABC):
@@ -28,10 +32,26 @@ from src.clustering import CLUSTERING_DICT
 #     self.logger.info(self.results)
 
 if __name__ == "__main__":
+    t0 = time()
     args = args_getter()
+    args["time"] = {"t0": t0}
     fldataset = FLDataset(args)
-    clustering = CLUSTERING_DICT[args.clustering](fldataset.config)
-    clustering.cluster(fldataset)
+    print(
+        "FL Dataset created in {} s".format(fldataset.config["time"]["tdataset"] - t0)
+    )
+    import ipdb
+
+    ipdb.set_trace()
+
+    clustering = CLUSTERING_DICT[args["clustering"]](fldataset.config, tune=False)
+    metrics = clustering.cluster(fldataset)
+    print(
+        "Clustered FL ran in {} s".format(
+            clustering.config["time"]["tcluster"]
+            - clustering.config["time"]["tdataset"]
+        )
+    )
+    print(metrics)
 
     # cluster_algo_runner = ClusterFLAlgo(args.algorithm)
     # cluster_algo_runner.run(setting)

@@ -1,152 +1,90 @@
-from ..utils import avg_metrics, correlation_clustering, compute_dist
-from .base import ClusterFLAlgo
-import torch
+from src.utils import avg_metrics, check_nan
+from src.clustering.base import ClusterFLAlgo
 import os
-import networkx as nx
+import torch
 import numpy as np
 import itertools
-from ..trainers import ClusterTrainer
+from src.trainers import ClusterTrainer
+from time import time
+from tqdm import tqdm
 
 
 class IFCA(ClusterFLAlgo):
-    def __init__(self, config):
-        super(IFCA, self).__init__(config)
+    def __init__(self, config, tune=False, tune_config=None):
+        super(IFCA, self).__init__(config, tune, tune_config)
+        self.init_cluster_map()
+        self.cluster_trainers = {}
+        self.cluster_path = os.path.join(self.config["path"]["results"], "clusters")
+
+        for cluster_id in range(self.config["num_clusters"]):
+            cluster_trainer = ClusterTrainer(self.config, cluster_id)
+            cluster_save_dir = os.path.join(
+                self.cluster_path, "cluster_{}".format(cluster_id)
+            )
+            cluster_trainer.set_save_dir(cluster_save_dir)
+            self.cluster_trainers[cluster_id] = cluster_trainer
 
     def cluster(self, experiment):
-        self.init(experiment)
-        for rounds in range(self.config["num_refine_steps"]):
-            self.refine(experiment, refine_step)
-
-    def init(self, experiment):
+        self.config["time"]["tcluster"] = time()
         client_dict = experiment.client_dict
-        init_path = os.path.join(self.config["path"]["results"], "init")
-        init_metrics = []
-        for i in self.client_trainers.keys():
-            client_save_dir = os.path.join(init_path, "client_{}".format(i))
-            self.client_trainers[i].set_save_dir(client_save_dir)
-            client_metrics = self.client_trainers[i].train(
-                client_data=client_dict[i],
-                local_iter=self.config["init"]["iterations"],
+        self.round_metrics = {}
+        for round_id in tqdm(range(self.config["rounds"])):
+            self.min_loss_clustering(client_dict)
+            self.empty_cluster_check("round id : {}".format(round_id))
+            torch.save(
+                self.cluster_map,
+                os.path.join(self.config["path"]["results"], "cluster_map.pth"),
             )
-            init_metrics.append((1,client_metrics))
-        self.init_metrics = avg_metrics(init_metrics)
-        torch.save(self.init_metrics, os.path.join(init_path, "metrics.pth"))
 
-        self.dist_clustering(client_dict, merge=False)
-        if len(self.cluster_map.keys()) == 0:
-            raise ValueError("Made 0 clusters after INIT")
-
-        torch.save(self.cluster_map, os.path.join(init_path, "cluster_map.pth"))
-
-    def refine(self, experiment, refine_step):
-        refine_path = os.path.join(
-            self.config["path"]["results"], "refine_{}".format(refine_step)
-        )
-        client_dict = experiment.client_dict
-        self.cluster_trainers = []
-        refine_metrics = {}
-
-        for i, client_idx in self.cluster_map.items():
-            cluster_trainer = ClusterTrainer(i, self.config)
-            cluster_save_dir = os.path.join(refine_path, "cluster_{}".format(i))
-            cluster_trainer.set_save_dir(cluster_save_dir)
-            cluster_metrics = cluster_trainer.train(
-                client_dict=client_dict,
-                client_idx=client_idx,
-                local_iter = self.config["refine"]["local_iter"],
-                rounds = self.config["refine"]["rounds"]
+            self.round_metrics[round_id] = []
+            for cluster_id in range(len(self.cluster_trainers)):
+                metrics = self.cluster_trainers[cluster_id].train(
+                    client_dict=client_dict,
+                    client_idx=self.cluster_map[cluster_id],
+                    local_iter=self.config["local_iter"],
+                    rounds=(round_id, round_id + 1),
+                )
+                if check_nan(metrics):
+                    return metrics
+                    raise ValueError("Nan or inf occurred in metrics")
+            self.round_metrics[round_id].append(
+                (len(self.cluster_map[cluster_id]), metrics)
             )
-            refine_metrics.append((len(client_idx),cluster_metrics))
+            self.round_metrics[round_id] = avg_metrics(self.round_metrics[round_id])
+            if (
+                round_id % self.config["freq"]["save"] == 0
+                or round_id == self.config["rounds"] - 1
+            ):
+                torch.save(
+                    self.round_metrics,
+                    os.path.join(self.config["path"]["results"], "metrics.pth"),
+                )
 
-        if refine_step == 0:
-            self.refine_metrics = {}
-        self.refine_metrics[refine_step] = avg_metrics(refine_metrics)
+        return self.round_metrics[self.config["rounds"] - 1]
 
-        torch.save(
-            self.refine_metrics[refine_step], os.path.join(refine_path, "metrics.pth")
-        )
-
-        self.cluster_map = self.recluster()
-        if len(self.cluster_map.keys()) == 0:
-            raise ValueError("Made 0 clusters after RECLUSTER in Refine step {}".format(refine_step))
-
-        self.dist_clustering(client_dict, merge=True)
-        if len(self.cluster_map.keys()) == 0:
-            raise ValueError("Made 0 clusters after MERGE in Refine step {}".format(refine_step))
-        torch.save(self.cluster_map, os.path.join(refine_path, "cluster_map.pth"))
-
-
-    def recluster(self, experiment):
-        cluster_client_product = {}
-        client_dict = experiment.client_dict
-        for (i, j) in itertools.product(
-            self.cluster_map.keys(), self.client_trainers.keys()
+    def min_loss_clustering(self, client_dict):
+        client_cluster_metrics = {}
+        for client_id, cluster_id in itertools.product(
+            range(self.config["num_clients"]), self.cluster_map.keys()
         ):
-            cluster_client_product[(i, j)] = compute_dist(
-                self.cluster_trainers[i],
-                self.client_trainers[j],
-                client_dict[self.cluster_map[i]],
-                client_dict[j],
-                self.config["dist_metric"],
-            )
-        client_graph = nx.Graph()
-        client_graph.add_nodes_from(range(self.config["num_clients"]))
-        all_pair_distances = self.compute_pairwise_distances(experiment)
-        for (i, j), dist in all_pair_distances.items():
-            if dist <= self.config["dist_threshold"]:
-                client_graph.add_edge(i, j)
-        client_graph = client_graph.to_undirected()
-        self.cluster_map = correlation_clustering(
-            client_graph, self.config["size_threshold"]
-        )
-        if len(self.cluster_map.keys()) == 0:
-            raise ValueError("Made 0 clusters after INIT")
+            if client_id not in client_cluster_metrics.keys():
+                client_cluster_metrics[client_id] = np.inf * np.ones(
+                    self.config["num_clusters"]
+                )
+            client_cluster_metrics[client_id][cluster_id] = self.cluster_trainers[
+                cluster_id
+            ].compute_loss(client_dict[client_id], train=True)
+        for cluster_id in self.cluster_map.keys():
+            self.cluster_map[cluster_id] = []
+        for client_id in range(self.config["num_clients"]):
+            cluster_id = client_cluster_metrics[client_id].argmin()
+            self.cluster_map[cluster_id].append(client_id)
 
-        cluster_map = {}
-        for (i, j), dist in cluster_client_product.items():
-            if dist <= self.config["dist_threshold"]:
-                if i not in cluster_map.keys():
-                    cluster_map[i] = []
-                cluster_map[i].append(j)
-        j = 0
-        self.cluster_map = {}
-        for i, cluster in cluster_map.keys():
-            if len(cluster) >= self.config["size_threshold"]:
-                self.cluster_map[j] = cluster
-                j += 1
-
-    def dist_clustering(self,client_dict, merge=False):
-        if merge:
-            clients = self.cluster_map
-            keys = range(self.config["num_clients"])
-            trainers = self.cluster_trainers
-        else:
-            clients = {i: i for i in range(client_dict.keys())}
-            keys = self.cluster_map.keys()
-            trainers = self.client_trainers
-        graph = nx.Graph()
-        graph.add_nodes_from(keys)
-
-        for i, j in list(itertools.combinations(keys)):
-            dist = compute_dist(trainers[i],trainers[j],
-                client_dict[clients[i]],
-                client_dict[clients[j]],
-                self.config["dist_metric"]
-            )
-            if dist <= self.config["dist_threshold"]:
-                graph.add_edge(i, j)
-        graph = graph.to_undirected()
-        dist_clustering = correlation_clustering(
-            graph, self.config["size_threshold"]
-        )
-        if merge:
-            cluster_map = {}
-            for i, cluster in dist_clustering.items():
-                new_cluster  = []
-                for j in cluster:
-                    new_cluster += self.cluster_map[j]
-                cluster_map[i] = new_cluster
-            self.cluster_map = cluster_map
-        else:
-            self.cluster_map = dist_clustering
-        
+    def init_cluster_map(self):
+        self.cluster_map = {
+            cluster_id: [] for cluster_id in range(self.config["num_clusters"])
+        }
+        client_idx = np.arange(self.config["num_clients"])
+        np.random.shuffle(client_idx)
+        for client_id in client_idx:
+            self.cluster_map[client_id % self.config["num_clusters"]].append(client_id)

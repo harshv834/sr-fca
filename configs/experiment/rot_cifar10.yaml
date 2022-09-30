@@ -1,0 +1,14 @@
+num_clients: 6
+dataset: 
+  name: synthetic
+  num_clusters: 2
+  dimension: 1000
+  num_samples:
+    train: 100
+    test: 100
+  noise_scale: 0.001
+  scale: 1
+path: experiments/synthetic/
+batch:
+  train: 50
+  test: 512

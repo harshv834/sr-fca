@@ -7,6 +7,9 @@ import random
 import torch
 from torch.cuda.amp import autocast
 import torch.optim as optim
+from shutil import rmtree
+import importlib.util
+import sys
 
 
 def args_getter():
@@ -32,7 +35,7 @@ def args_getter():
     parser.add_argument(
         "-c",
         "--clustering",
-        choices=["sr_fca", "ifca", "cfl", "mocha", "all"],
+        choices=["sr_fca", "ifca", "cfl", "mocha", "fedavg", "all"],
         # required=True,
         default="sr_fca",
         help="Clustering algo to use for this run, if all is specified run all algorithms and compare",
@@ -45,48 +48,70 @@ def args_getter():
         help="Distance metric to use when comparing models",
     )
     args = parser.parse_args()
+    args = vars(args)
     return args
     # ## This is set by hyperparameter config. Do we need a single config file with everything
     # parser.add_argument("-b", "--base-optimizer", choices=["adam", "sgd", "arg"])
 
 
-def read_algo_config(data_config):
+def read_algo_config(data_config, tune=False):
     path = os.path.join(
         "configs",
         "clustering",
         data_config["clustering"],
-        data_config["dataset"] + ".yaml",
+        data_config["dataset"]["name"],
+        "best_hp.yaml",
     )
-    assert os.path.exists(path), "Algorithm config does not exist for path {}".format(
-        path
-    )
+    exists = os.path.exists(path)
+    if tune:
+        if exists:
+            rmtree(path)
 
-    with open(path, "r") as f:
-        try:
-            config = yaml.safe_load(f)
-        except yaml.YAMLError as err:
-            print(err)
-    config = {**data_config, **config}
+        # config = suggest_config(
+        #     data_config["dataset"]["name"], data_config["clustering"]
+        # )
+    else:
+
+        assert exists, "Algorithm config does not exist for path {}".format(path)
+
+        with open(path, "r") as f:
+            try:
+                config = yaml.safe_load(f)
+            except yaml.YAMLError as err:
+                print(err)
+    ## Works only on python >=3.9.0
+    config = config | data_config
+
+    if config["dataset"]["name"] == "synthetic":
+        config["model"]["params"] = {
+            "dimension": config["dataset"]["dimension"],
+            "scale": config["dataset"]["scale"],
+        }
     return config
 
 
 LOSS_DICT = {"cross_entropy": torch.nn.CrossEntropyLoss(), "mse": torch.nn.MSELoss()}
 
 
-def compute_metric(model, client_data, train=True, loss=None):
+def compute_metric(model, client_data, train=True, loss=None, device=None):
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
+    if device is not None:
+        model = model.to(memory_format=torch.channels_last).to(device)
     with torch.no_grad():
         total, total_num = 0.0, 0.0
-        for ims, labs in loader:
-            with autocast():
-                out = model(ims)  # Test-time augmentation
-                if loss is not None:
-                    total += loss(out, labs)
-                else:
-                    total += out.argmax(1).eq(labs).sum().cpu().item()
-                total_num += ims.shape[0]
+        for X, Y in loader:
+            if device is not None:
+                X, Y = X.to(device), Y.to(device)
 
+            with autocast():
+                out = model(X)  # Test-time augmentation
+                if loss is not None:
+                    total += loss(out, Y).item()
+                else:
+                    total += out.argmax(1).eq(Y).sum().cpu().item()
+                total_num += Y.shape[0]
+    model.cpu()
     return total / total_num
 
 
@@ -103,8 +128,9 @@ def get_optimizer(model_parameters, config):
 
 
 def get_lr_scheduler(config, optimizer, local_iter, round):
-    if config["experiment"] == "rot_cifar10":
-
+    cond_1 = config["dataset"]["name"] == "rot_cifar10"
+    cond_2 = config["clustering"] == "sr_fca"
+    if cond_1 and cond_2:
         iters_per_epoch = 50000 // int(
             config["batch"]["train"] * (config["num_clients"] // config["num_clusters"])
         )
@@ -115,27 +141,35 @@ def get_lr_scheduler(config, optimizer, local_iter, round):
                 [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
                 [0, 1, 0],
             )
+    elif not cond_1 and cond_2:
+        lr_schedule = np.ones(config["init"]["iterations"] + 1)
     else:
-        lr_schedule = (
-            np.ones(config["init"]["iterations"] + 1)
-            * config["optimizer"]["params"]["lr"]
-        )
+        lr_schedule = np.ones(config["rounds"] + 1)
 
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_schedule.__getitem__)
     return scheduler
 
 
 def avg_metrics(metrics_list):
+
     avg_metric_dict = {}
-    for key in metrics_list[0].keys():
-        avg_metric_dict[key] = 0.0
+    metric_keys = metrics_list[0][1].keys()
+    for key in metric_keys:
+        for metric_name in metrics_list[0][1][key].keys():
+            avg_metric_dict[key] = {metric_name: 0.0}
     tot_count = 0
     for (count, metric_dict) in metrics_list:
         tot_count += count
-        for key in avg_metric_dict.keys():
-            avg_metric_dict[key] += count * metric_dict[key]
-    for key in avg_metric_dict.keys():
-        avg_metric_dict[key] = avg_metric_dict / tot_count
+        for key in metric_keys:
+            for metric_name in metric_dict[key].keys():
+                avg_metric_dict[key][metric_name] += (
+                    count * metric_dict[key][metric_name]
+                )
+    for key in metric_keys:
+        for metric_name in metrics_list[0][1][key].keys():
+            avg_metric_dict[key][metric_name] = (
+                avg_metric_dict[key][metric_name] / tot_count
+            )
     return avg_metric_dict
 
 
@@ -189,14 +223,15 @@ def correlation_clustering(client_graph, size_threshold):
 def read_data_config(args_dict):
     path = os.path.join("configs", "experiment", args_dict["dataset"] + ".yaml")
     assert os.path.exists(path), "Dataset config does exist for path {}".format(path)
-
+    config = {}
     ## Config loaded from yaml file for the dataset and merged with the arguments from argparse
     with open(path, "r") as f:
         try:
             config = yaml.safe_load(f)
         except yaml.YAMLError as err:
             print(err)
-    config = {**config, **args_dict}
+    # this updates args_dict by config with replacement
+    config = args_dict | config
     config["path"] = {
         "data": os.path.join(config["path"], "seed_{}".format(config["seed"]), "data"),
         "results": os.path.join(
@@ -223,3 +258,79 @@ def set_seeds(seed):
     ## What does this do ?
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+def get_device(config, i, cluster=False):
+    if torch.cuda.device_count() == 1:
+        return "cuda:0"
+    else:
+        raise ValueError(
+            "Current implementation can handle only 1 GPU. {} GPUs were provided".format(
+                torch.cuda.device_count()
+            )
+        )
+
+
+def check_nan(metrics):
+    for key in metrics.keys():
+        for val in metrics[key].values():
+            if np.isnan(np.array(val)).any() or np.isinf(np.array(val)).any():
+                return True
+
+    return False
+
+
+def get_search_space(config):
+    algo_config_path = os.path.join(
+        "configs",
+        "clustering",
+        config["clustering"],
+        config["dataset"]["name"],
+    )
+    hp_search_path = os.path.join(algo_config_path, "hp_config.py")
+    spec = importlib.util.spec_from_file_location("module.name", hp_search_path)
+    config_file = importlib.util.module_from_spec(spec)
+    sys.modules["module.name"] = config_file
+    spec.loader.exec_module(config_file)
+    best_hp_path = os.path.join(algo_config_path, "best_hp.yaml")
+    return best_hp_path, lambda trial: config_file.get_hp_config(trial, config)
+
+
+def wt_dict_diff(wt_1, wt_2):
+    assert wt_1.keys() == wt_2.keys(), "Both weight dicts have different keys"
+    diff_dict = {}
+    for key in wt_1.keys():
+        diff_dict[key] = convert_to_cpu(wt_1[key]) - convert_to_cpu(wt_2[key])
+    return diff_dict
+
+
+def wt_dict_norm(wt):
+    norm = 0
+    for val in wt.values():
+        norm += np.linalg.norm(convert_to_cpu(val)) ** 2
+    return np.sqrt(norm)
+
+
+def wt_dict_dot(wt_1, wt_2):
+    assert wt_1.keys() == wt_2.keys(), "Both weight dicts have different keys"
+    dot = 0.0
+    for key in wt_1.keys():
+        dot += np.dot(
+            convert_to_cpu(wt_1[key]).reshape(-1), convert_to_cpu(wt_2[key]).reshape(-1)
+        )
+    return dot
+
+
+def convert_to_cpu(val):
+    val_arr = val
+    if type(val) != np.ndarray:
+        if val.device != "cpu":
+            val_arr = val_arr.cpu()
+        val_arr = val_arr.cpu()
+    return val_arr
+
+
+def compute_alpha_max(alpha_mat, partitions):
+
+    keys = list(partitions.keys())
+    return alpha_mat[partitions[keys[0]], :][:, partitions[keys[1]]].max()

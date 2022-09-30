@@ -1,20 +1,24 @@
-model: simplelin
+model: 
+  name: simplelin
 dist_threshold: 0.5
 size_threshold: 1
-optimizer:
-  name: adam
-  params:
-    lr: 0.001
-local_steps: 5
-iterations: 100
+freq:
+  metrics: 5
+  save: 150
+  print: 100
 num_refine_steps: 2
 beta: 0.15
 num_clients_per_round: 3
 init:
-  iterations: 100
+  iterations: 300
 refine:
   local_iter: 5
-  rounds: 20
+  rounds: 60
+optimizer:
+  name: sgd
+  params:
+    lr: 0.1
+
 # {
 #     "m" : 100,
 #     "p" : 2,
