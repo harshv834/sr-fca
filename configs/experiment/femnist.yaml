@@ -1,0 +1,10 @@
+num_clients: 6
+dataset: 
+  name: femnist
+  input_size : 784
+  num_classes : 62
+path: experiments/femnist/
+batch:
+  train: 64
+  test: 512
+full_data_path : /base_vol/sr_fca_refactor/leaf/data/femnist/data

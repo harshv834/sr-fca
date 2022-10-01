@@ -1,5 +1,6 @@
-import torch.nn as nn
+from math import ceil, sqrt
 
+import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -14,6 +15,8 @@ class SimpleCNN(nn.Module):
         self.fc2 = nn.Linear(2048, 62)
 
     def forward(self, x):
+        last_dim = x.shape[1]
+        x = x.view(-1, 1, ceil(sqrt(last_dim)), ceil(sqrt(last_dim)))
         x = F.relu(self.conv1(x))
         x = self.pool1(x)
         x = self.conv2(x)

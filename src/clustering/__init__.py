@@ -1,7 +1,9 @@
 from src.clustering.sr_fca import SRFCA
-from .ifca import IFCA
+
 from .cfl import CFL
 from .fedavg import FedAvg
+from .ifca import IFCA
+
 # from .mocha import MOCHA
 
 # CLUSTERING_DICT = {"ifca": IFCA, "sr_fca": SRFCA, "cfl": CFL, "mocha": MOCHA}

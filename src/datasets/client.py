@@ -1,32 +1,23 @@
 import os
-from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms as transforms
-
+from math import ceil, sqrt
+from shutil import rmtree
 from typing import List
+
+import numpy as np
 import torch
 import torchvision
-import numpy as np
-from shutil import rmtree
-from ffcv.fields import IntField, RGBImageField, NDArrayField, FloatField
-from ffcv.fields.decoders import (
-    IntDecoder,
-    SimpleRGBImageDecoder,
-    NDArrayDecoder,
-    FloatDecoder,
-)
+import torchvision.transforms as transforms
+from ffcv.fields import FloatField, IntField, NDArrayField, RGBImageField
+from ffcv.fields.decoders import (FloatDecoder, IntDecoder, NDArrayDecoder,
+                                  SimpleRGBImageDecoder)
 from ffcv.loader import Loader, OrderOption
 from ffcv.pipeline.operation import Operation
-from ffcv.transforms import (
-    RandomHorizontalFlip,
-    Cutout,
-    RandomTranslate,
-    Convert,
-    ToDevice,
-    ToTensor,
-    ToTorchImage,
-)
+from ffcv.transforms import (Convert, Cutout, RandomHorizontalFlip,
+                             RandomTranslate, ToDevice, ToTensor, ToTorchImage)
 from ffcv.transforms.common import Squeeze
 from ffcv.writer import DatasetWriter
+from torch.utils.data import DataLoader, Dataset
+
 from src.utils import get_device
 
 CIFAR_MEAN = [0.4914, 0.4822, 0.4465]
@@ -54,17 +45,15 @@ class ClientWriteDataset(Dataset):
 
     def format_dataset_for_write(self):
         if self.config["dataset"]["name"].endswith("mnist"):
-            self.data = self.data.reshape(
-                -1, self.config["dataset"]["input_size"]
-            ).numpy()
-        if type(self.data) == torch.Tensor:
-            self.data = self.data.float()
-        elif type(self.data) == np.ndarray:
-            self.data = self.data.astype("float32")
-        else:
-            raise ValueError(
-                "Invalid datatype of client features {}".format(type(self.data))
-            )
+            self.data = self.data.reshape(-1, self.config["dataset"]["input_size"])
+            if type(self.data) == torch.Tensor:
+                self.data = self.data.float().numpy()
+            elif type(self.data) == np.ndarray:
+                self.data = self.data.astype("float32")
+            else:
+                raise ValueError(
+                    "Invalid datatype of client features {}".format(type(self.data))
+                )
 
 
 # class ClientDataset(Dataset):
@@ -112,7 +101,7 @@ class Client:
         train_writeset = ClientWriteDataset(config, train_data)
         test_writeset = ClientWriteDataset(config, test_data)
 
-        if config["dataset"]["name"] != "synthetic":
+        if config["dataset"]["name"] not in ["synthetic", "shakespeare"]:
 
             temp_path = os.path.join(config["path"]["data"], "tmp_storage")
             if os.path.exists(temp_path):
@@ -238,7 +227,7 @@ def get_pipelines(config, i):
         }
         test_loader_pipeline = train_loader_pipeline
     elif config["dataset"]["name"].endswith("cifar10"):
-        writer_pipeline = {"X": RGBImageField(), "y": IntDecoder()}
+        writer_pipeline = {"X": RGBImageField(), "y": IntField()}
         label_pipeline: List[Operation] = [
             IntDecoder(),
             ToTensor(),
@@ -267,7 +256,6 @@ def get_pipelines(config, i):
         ]
         train_loader_pipeline = {"X": train_image_pipeline, "y": label_pipeline}
         test_loader_pipeline = {"X": test_image_pipeline, "y": label_pipeline}
-        raise NotImplementedError
     elif config["dataset"]["name"] == "shakespeare":
         raise NotImplementedError
     else:

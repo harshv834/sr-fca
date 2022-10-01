@@ -1,5 +1,11 @@
 model: 
-  name: simplelin
+  name: stacked_lstm
+  params:
+    seq_len : 80
+    emb_dim: 8
+    n_hidden: 100
+    num_classes : 80
+    n_layers: 2
 dist_threshold: 0.5
 size_threshold: 1
 freq:
@@ -17,22 +23,5 @@ refine:
 optimizer:
   name: sgd
   params:
-    lr: 0.1
-
-# {
-#     "m" : 100,
-#     "p" : 2,
-
-#     "n" : 100,
-#     "d" : 1000,
-
-#     "r" : 1.0,
-
-#     "noise_scale": 0.001,
-
-#     "num_epochs": 300,
-#     "score":"set",
-#     "lr":0.1,
-#     "data_seed":0,
-#     "train_seed":0
-# }
+    lr: 0.003
+    momentum: 0.9

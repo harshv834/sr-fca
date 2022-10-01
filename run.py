@@ -39,10 +39,6 @@ if __name__ == "__main__":
     print(
         "FL Dataset created in {} s".format(fldataset.config["time"]["tdataset"] - t0)
     )
-    import ipdb
-
-    ipdb.set_trace()
-
     clustering = CLUSTERING_DICT[args["clustering"]](fldataset.config, tune=False)
     metrics = clustering.cluster(fldataset)
     print(

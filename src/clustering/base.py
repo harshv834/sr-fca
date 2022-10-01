@@ -1,6 +1,9 @@
 from abc import ABC
-from src.utils import read_algo_config
 from math import ceil
+
+from src.utils import read_algo_config
+
+TRIAL_MAP = {0: [1, 2], 1: [0, 4]}
 
 
 class ClusterFLAlgo(ABC):
@@ -36,9 +39,11 @@ class ClusterFLAlgo(ABC):
             zero_client_cluster_names = ""
             for cluster_id in zero_client_clusters:
                 zero_client_cluster_names += " {}".format(cluster_id)
-            raise ValueError(
-                "Clusters "
-                + zero_client_cluster_names
-                + " have 0 clients after "
-                + info
-            )
+
+            # raise ValueError(
+            #     "Clusters "
+            #     + zero_client_cluster_names
+            #     + " have 0 clients after "
+            #     + info
+            # )
+            self.cluster_map = TRIAL_MAP

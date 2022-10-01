@@ -1,8 +1,9 @@
-from src.utils import check_nan
-from src.clustering.base import ClusterFLAlgo
 import os
-from src.trainers import ClusterTrainer
 from time import time
+
+from src.clustering.base import ClusterFLAlgo
+from src.trainers import ClusterTrainer
+from src.utils import check_nan
 
 
 class FedAvg(ClusterFLAlgo):

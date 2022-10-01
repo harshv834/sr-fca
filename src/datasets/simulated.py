@@ -1,7 +1,8 @@
 import numpy as np
 import torch
-from torchvision.datasets import MNIST, CIFAR10
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
+from torchvision.datasets import CIFAR10, MNIST
 
 DATASET_LIB = {
     "mnist": MNIST,
@@ -67,7 +68,7 @@ def apply_client_het(train_chunks, test_chunks, transformation, num_clusters):
 
         assert num_clusters in [2, 4], "Currently support only 2 or 4 rotated clusters"
         for i in range(num_clients):
-            theta = 2 * np.pi * (i % num_clusters) / num_clusters
+            theta = int(360 * (i % num_clusters) / num_clusters)
             train_chunks[i] = (rot_img(train_chunks[i][0], theta), train_chunks[i][1])
 
     else:
@@ -94,25 +95,17 @@ def load_simulated_dataset(dataset_name, client_het, dataset_path, config):
     return train_chunks, test_chunks
 
 
-def get_rot_mat(theta):
-    theta = torch.tensor(theta)
-    return torch.tensor(
-        [
-            [torch.cos(theta), -torch.sin(theta), 0],
-            [torch.sin(theta), torch.cos(theta), 0],
-        ]
-    )
-
-
 def rot_img(x, theta):
-    if theta == 0:
-        return x
-    if len(x.shape) == 3:
-        x = x.unsqueeze(1).float()
-        squeeze_later = True
-    rot_mat = get_rot_mat(theta)[None, ...].type(torch.float32).repeat(x.shape[0], 1, 1)
-    grid = F.affine_grid(rot_mat, x.size()).type(torch.float32)
-    x = F.grid_sample(x, grid)
-    if squeeze_later:
-        x = x.squeeze(1).byte()
+    if len(x.shape) == 4:
+        x = x.transpose(0, 3, 1, 2)
+    numpy_arr = False
+    if type(x) == np.ndarray:
+        x = torch.tensor(x)
+        numpy_arr = True
+    x = TF.rotate(x, theta)
+    if numpy_arr:
+        x = x.numpy()
+    if len(x.shape) == 4:
+        x = x.transpose(0, 2, 3, 1)
+
     return x

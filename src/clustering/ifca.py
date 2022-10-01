@@ -1,12 +1,14 @@
-from src.utils import avg_metrics, check_nan
-from src.clustering.base import ClusterFLAlgo
-import os
-import torch
-import numpy as np
 import itertools
-from src.trainers import ClusterTrainer
+import os
 from time import time
+
+import numpy as np
+import torch
 from tqdm import tqdm
+
+from src.clustering.base import ClusterFLAlgo
+from src.trainers import ClusterTrainer
+from src.utils import avg_metrics, check_nan
 
 
 class IFCA(ClusterFLAlgo):

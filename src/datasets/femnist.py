@@ -1,45 +1,38 @@
-from collections import defaultdict
-import os
 import json
+import os
+import random
+from collections import defaultdict
+
+import numpy as np
+
+from src.utils import read_data
 
 
-def read_dir(data_dir):
-    clients = []
-    groups = []
-    data = defaultdict(lambda: None)
+def get_femnist(config):
+    full_data_path = config["full_data_path"]
+    data_path = config["path"]["data"]
+    train_path = os.path.join(full_data_path, "train")
+    test_path = os.path.join(full_data_path, "test")
+    all_client_idx, _, train_data, test_data = read_data(train_path, test_path)
+    selected_clients_path = os.path.join(data_path, "selected_clients.json")
+    if os.path.exists(selected_clients_path):
+        with open(selected_clients_path, "r") as f:
+            client_idx = json.load(f)
 
-    files = os.listdir(data_dir)
-    files = [f for f in files if f.endswith(".json")]
-    for f in files:
-        file_path = os.path.join(data_dir, f)
-        with open(file_path, "r") as inf:
-            cdata = json.load(inf)
-        clients.extend(cdata["users"])
-        if "hierarchies" in cdata:
-            groups.extend(cdata["hierarchies"])
-        data.update(cdata["user_data"])
+    else:
+        if len(all_client_idx) >= config["num_clients"]:
+            client_idx = random.sample(all_client_idx, config["num_clients"])
+        else:
+            client_idx = all_client_idx
 
-    clients = list(sorted(data.keys()))
-    return clients, groups, data
-
-
-def read_data(train_data_dir, test_data_dir):
-    """parses data in given train and test data directories
-    assumes:
-    - the data in the input directories are .json files with
-        keys 'users' and 'user_data'
-    - the set of train set users is the same as the set of test set users
-
-    Return:
-        clients: list of client ids
-        groups: list of group ids; empty list if none found
-        train_data: dictionary of train data
-        test_data: dictionary of test data
-    """
-    train_clients, train_groups, train_data = read_dir(train_data_dir)
-    test_clients, test_groups, test_data = read_dir(test_data_dir)
-
-    assert train_clients == test_clients
-    assert train_groups == test_groups
-
-    return train_clients, train_groups, train_data, test_data
+        with open(selected_clients_path, "w") as f:
+            json.dump(client_idx, f)
+    train_chunks = [
+        (np.array(train_data[client_id]["x"]), np.array(train_data[client_id]["y"]))
+        for client_id in client_idx
+    ]
+    test_chunks = [
+        (np.array(test_data[client_id]["x"]), np.array(test_data[client_id]["y"]))
+        for client_id in client_idx
+    ]
+    return train_chunks, test_chunks, client_idx

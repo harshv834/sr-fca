@@ -1,12 +1,12 @@
-from .linear import OneLayer, TwoLayer
-from .resnet import ResNet9
 from .cnn import SimpleCNN
-from .lstm import 
+from .linear import OneLayer, TwoLayer
+from .lstm import StackedLSTM
+from .resnet import ResNet9
 
 MODEL_DICT = {
     "one_layer_lin": OneLayer,
     "two_layer_lin": TwoLayer,
     "resnet": ResNet9,
     "simplecnn": SimpleCNN,
+    "stacked_lstm": StackedLSTM,
 }
-

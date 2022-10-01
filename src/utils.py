@@ -1,15 +1,17 @@
 import argparse
+import importlib.util
 import json
 import os
-import yaml
-import numpy as np
 import random
-import torch
-from torch.cuda.amp import autocast
-import torch.optim as optim
-from shutil import rmtree
-import importlib.util
 import sys
+from collections import defaultdict
+from shutil import rmtree
+
+import numpy as np
+import torch
+import torch.optim as optim
+import yaml
+from torch.cuda.amp import autocast
 
 
 def args_getter():
@@ -93,24 +95,42 @@ def read_algo_config(data_config, tune=False):
 LOSS_DICT = {"cross_entropy": torch.nn.CrossEntropyLoss(), "mse": torch.nn.MSELoss()}
 
 
-def compute_metric(model, client_data, train=True, loss=None, device=None):
+def compute_metric(
+    model, client_data, train=True, loss=None, device=None, lstm_flag=False
+):
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
     if device is not None:
         model = model.to(memory_format=torch.channels_last).to(device)
+    if lstm_flag:
+        batch_size, hidden = None, None
     with torch.no_grad():
         total, total_num = 0.0, 0.0
         for X, Y in loader:
+            if lstm_flag:
+                if batch_size is None:
+                    batch_size = X.shape[0]
+                    hidden = model.zero_state(batch_size)
+                if X.shape[0] < batch_size:
+                    break
             if device is not None:
                 X, Y = X.to(device), Y.to(device)
+                if lstm_flag:
+                    hidden = (hidden[0].to(device), hidden[1].to(device))
 
             with autocast():
-                out = model(X)  # Test-time augmentation
+                if lstm_flag:
+                    out, hidden = model(X, hidden)
+                    hidden = (hidden[0].detach(), hidden[1].detach())
+                else:
+                    out = model(X)  # Test-time augmentation
+
                 if loss is not None:
                     total += loss(out, Y).item()
                 else:
                     total += out.argmax(1).eq(Y).sum().cpu().item()
                 total_num += Y.shape[0]
+
     model.cpu()
     return total / total_num
 
@@ -132,19 +152,27 @@ def get_lr_scheduler(config, optimizer, local_iter, round):
     cond_2 = config["clustering"] == "sr_fca"
     if cond_1 and cond_2:
         iters_per_epoch = 50000 // int(
-            config["batch"]["train"] * (config["num_clients"] // config["num_clusters"])
+            config["batch"]["train"]
+            * (config["num_clients"] // config["dataset"]["num_clusters"])
         )
         epochs = config["init"]["iterations"] // iters_per_epoch
-        if round is None:
-            lr_schedule = np.interp(
-                np.arange((epochs + 1) * iters_per_epoch),
-                [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
-                [0, 1, 0],
-            )
+        lr_schedule = np.interp(
+            np.arange((epochs + 1) * iters_per_epoch),
+            [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
+            [0, 1, 0],
+        )
+        if round is not None:
+            if type(round) == tuple:
+                first_iter = round[0] * local_iter
+                last_iter = max((round[1] + 1) * local_iter, lr_schedule.shape[0])
+            else:
+                first_iter = 0
+                last_iter = max((round + 1) * local_iter, lr_schedule.shape[0])
+            lr_schedule = lr_schedule[first_iter:last_iter]
     elif not cond_1 and cond_2:
         lr_schedule = np.ones(config["init"]["iterations"] + 1)
     else:
-        lr_schedule = np.ones(config["rounds"] + 1)
+        lr_schedule = np.ones(max(config["rounds"], local_iter) + 1)
 
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_schedule.__getitem__)
     return scheduler
@@ -153,10 +181,12 @@ def get_lr_scheduler(config, optimizer, local_iter, round):
 def avg_metrics(metrics_list):
 
     avg_metric_dict = {}
+
     metric_keys = metrics_list[0][1].keys()
     for key in metric_keys:
+        avg_metric_dict[key] = {}
         for metric_name in metrics_list[0][1][key].keys():
-            avg_metric_dict[key] = {metric_name: 0.0}
+            avg_metric_dict[key][metric_name] = 0.0
     tot_count = 0
     for (count, metric_dict) in metrics_list:
         tot_count += count
@@ -182,9 +212,7 @@ def euclidean_dist(w1, w2):
 
 def compute_dist(trainer_1, trainer_2, client_1, client_2, dist_metric):
     if dist_metric == "euclidean":
-        return euclidean_dist(
-            trainer_1.model.state_dict(), trainer_2.model.state_dict()
-        )
+        return euclidean_dist(trainer_1.get_model_wts(), trainer_2.get_model_wts())
     elif dist_metric == "cross_entropy":
         trainer_1_client_2 = 0.0
         for client in client_2:
@@ -334,3 +362,45 @@ def compute_alpha_max(alpha_mat, partitions):
 
     keys = list(partitions.keys())
     return alpha_mat[partitions[keys[0]], :][:, partitions[keys[1]]].max()
+
+
+def read_dir(data_dir):
+    clients = []
+    groups = []
+    data = defaultdict(lambda: None)
+
+    files = os.listdir(data_dir)
+    files = [f for f in files if f.endswith(".json")]
+    for f in files:
+        file_path = os.path.join(data_dir, f)
+        with open(file_path, "r") as inf:
+            cdata = json.load(inf)
+        clients.extend(cdata["users"])
+        if "hierarchies" in cdata:
+            groups.extend(cdata["hierarchies"])
+        data.update(cdata["user_data"])
+
+    clients = list(sorted(data.keys()))
+    return clients, groups, data
+
+
+def read_data(train_data_dir, test_data_dir):
+    """parses data in given train and test data directories
+    assumes:
+    - the data in the input directories are .json files with
+        keys 'users' and 'user_data'
+    - the set of train set users is the same as the set of test set users
+
+    Return:
+        clients: list of client ids
+        groups: list of group ids; empty list if none found
+        train_data: dictionary of train data
+        test_data: dictionary of test data
+    """
+    train_clients, train_groups, train_data = read_dir(train_data_dir)
+    test_clients, test_groups, test_data = read_dir(test_data_dir)
+
+    assert train_clients == test_clients
+    assert train_groups == test_groups
+
+    return train_clients, train_groups, train_data, test_data
