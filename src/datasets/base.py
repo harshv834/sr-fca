@@ -1,4 +1,3 @@
-import os
 from time import time
 
 from src.datasets.client import Client

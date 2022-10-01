@@ -16,10 +16,10 @@ num_refine_steps: 2
 beta: 0.15
 num_clients_per_round: 3
 init:
-  iterations: 300
+  iterations: 10
 refine:
   local_iter: 5
-  rounds: 60
+  rounds: 2
 optimizer:
   name: sgd
   params:

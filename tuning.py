@@ -1,19 +1,19 @@
-from lib2to3.pgen2.token import OP
-import torch
-from ray import tune, air
-from ray.air import session
-from ray.tune.search.optuna import OptunaSearch
-from ray.tune.search import ConcurrencyLimiter
-from ray.tune import with_parameters, with_resources
-from src.utils import args_getter
-from src.datasets.base import FLDataset
-from src.clustering import CLUSTERING_DICT
-from tqdm import tqdm
 from functools import partialmethod
 from time import time
+
 import numpy as np
-from src.utils import check_nan, get_search_space
 import yaml
+from ray import air, tune
+from ray.air import session
+from ray.tune import with_parameters, with_resources
+from ray.tune.schedulers import ASHAScheduler
+from ray.tune.search import ConcurrencyLimiter
+from ray.tune.search.optuna import OptunaSearch
+from tqdm import tqdm
+
+from src.clustering import CLUSTERING_DICT
+from src.datasets.base import FLDataset
+from src.utils import args_getter, check_nan, get_search_space
 
 tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
@@ -51,26 +51,22 @@ else:
 best_hp_path, search_space_func = get_search_space(fldataset.config)
 searcher = OptunaSearch(space=search_space_func, metric="test_metric", mode=mode)
 algo = ConcurrencyLimiter(searcher, max_concurrent=4)
-# from ray.util import inspect_serializability
-
-# print(inspect_serializability(with_parameters(objective, fldataset=fldataset)))
-# import ipdb
-
-# ipdb.set_trace()
 tuner = tune.Tuner(
     with_resources(
         with_parameters(objective, fldataset=fldataset), resources={"cpu": 8, "gpu": 1}
     ),
     tune_config=tune.TuneConfig(
         search_alg=algo,
-        num_samples=20,
+        num_samples=3,
     ),
-    run_config=air.RunConfig(failure_config=air.FailureConfig(fail_fast=True)),
 )
 results = tuner.fit()
 # ## Check_nan here with config
-results_df = results.get_dataframe()(metric="test_metric", mode=mode)
-print("Best_config", results.get_best_result().config)
-with open(best_hp_path, "w") as f:
-    yaml.dump(results.get_best_result().config, f, default_flow_style=False)
-## Save metrics for best config as well
+try:
+    best_result = results.get_best_result(metric="test_metric", mode=mode)
+    print("Best_config", best_result.config)
+    with open(best_hp_path, "w") as f:
+        yaml.dump(results.get_best_result().config, f, default_flow_style=False)
+    ## Save metrics for best config as well
+except RuntimeError:
+    print("All trials ended with test metric NaN")

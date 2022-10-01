@@ -1,6 +1,6 @@
-from ray import tune
 from math import ceil
 
+from ray import tune
 
 # class Config:
 #     def __init__(self):

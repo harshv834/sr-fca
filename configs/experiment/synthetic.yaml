@@ -1,4 +1,4 @@
-num_clients: 100
+num_clients: 6
 dataset: 
   name: synthetic
   num_clusters: 2

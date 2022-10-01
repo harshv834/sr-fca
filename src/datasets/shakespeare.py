@@ -28,13 +28,17 @@ def get_shakespeare(config):
         with open(selected_clients_path, "w") as f:
             json.dump(client_idx, f)
     train_chunks = [
-        (np.array([word_to_indices(word) for word in train_data[client_id]["x"]]), np.array([letter_to_vec(l) for l in train_data[client_id]["y"]]))
+        (
+            np.array([word_to_indices(word) for word in train_data[client_id]["x"]]),
+            np.array([letter_to_vec(l) for l in train_data[client_id]["y"]]),
+        )
         for client_id in client_idx
     ]
     test_chunks = [
-        (np.array([word_to_indices(word) for word in test_data[client_id]["x"]]), np.array([letter_to_vec(l) for l in test_data[client_id]["y"]]))
+        (
+            np.array([word_to_indices(word) for word in test_data[client_id]["x"]]),
+            np.array([letter_to_vec(l) for l in test_data[client_id]["y"]]),
+        )
         for client_id in client_idx
     ]
     return train_chunks, test_chunks, client_idx
-
-    

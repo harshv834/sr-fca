@@ -1,5 +1,6 @@
 import itertools
 import os
+from math import ceil
 from time import time
 
 import numpy as np
@@ -14,6 +15,10 @@ from src.utils import avg_metrics, check_nan
 class IFCA(ClusterFLAlgo):
     def __init__(self, config, tune=False, tune_config=None):
         super(IFCA, self).__init__(config, tune, tune_config)
+        if tune:
+            self.config["rounds"] = ceil(
+                self.config["iterations"] / self.config["local_iter"]
+            )
         self.init_cluster_map()
         self.cluster_trainers = {}
         self.cluster_path = os.path.join(self.config["path"]["results"], "clusters")
@@ -47,7 +52,7 @@ class IFCA(ClusterFLAlgo):
                     rounds=(round_id, round_id + 1),
                 )
                 if check_nan(metrics):
-                    return metrics
+                    # return metrics
                     raise ValueError("Nan or inf occurred in metrics")
             self.round_metrics[round_id].append(
                 (len(self.cluster_map[cluster_id]), metrics)

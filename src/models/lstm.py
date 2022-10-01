@@ -17,8 +17,6 @@ class StackedLSTM(nn.Module):
 
     def forward(self, x, hidden):  # x (n_samples, seq_len)
         x = self.embedding(x)  # x(n_samples, seq_len, emb_dim)
-        # batch_size = x.shape[0] # x()
-        # x = x.view(1, batch_size, -1)
         x, hidden = self.rnn(x, hidden)  # (n_samples, seq_len, n_hidden)
         x = self.fc(x[:, -1, :])
         return x, hidden

@@ -8,12 +8,23 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 from ffcv.fields import FloatField, IntField, NDArrayField, RGBImageField
-from ffcv.fields.decoders import (FloatDecoder, IntDecoder, NDArrayDecoder,
-                                  SimpleRGBImageDecoder)
+from ffcv.fields.decoders import (
+    FloatDecoder,
+    IntDecoder,
+    NDArrayDecoder,
+    SimpleRGBImageDecoder,
+)
 from ffcv.loader import Loader, OrderOption
 from ffcv.pipeline.operation import Operation
-from ffcv.transforms import (Convert, Cutout, RandomHorizontalFlip,
-                             RandomTranslate, ToDevice, ToTensor, ToTorchImage)
+from ffcv.transforms import (
+    Convert,
+    Cutout,
+    RandomHorizontalFlip,
+    RandomTranslate,
+    ToDevice,
+    ToTensor,
+    ToTorchImage,
+)
 from ffcv.transforms.common import Squeeze
 from ffcv.writer import DatasetWriter
 from torch.utils.data import DataLoader, Dataset
@@ -54,43 +65,6 @@ class ClientWriteDataset(Dataset):
                 raise ValueError(
                     "Invalid datatype of client features {}".format(type(self.data))
                 )
-
-
-# class ClientDataset(Dataset):
-#     def __init__(self, data, transforms=None):
-#         super(ClientDataset, self).__init__()
-#         self.data = data[0]
-#         self.labels = data[1]
-#         self.transforms = transforms
-
-#     def __len__(self):
-#         return len(self.data)
-
-#     def __getitem__(self, idx):
-#         idx_data = self.data[idx]
-#         if self.transforms is not None:
-#             transformed_data = self.transforms(idx_data)
-#         else:
-#             transformed_data = idx_data
-#         idx_labels = self.labels[idx]
-#         return (transformed_data, idx_labels)
-
-
-# # 1,000,000 inputs each of dimension 10,000 = 40GB of data
-# N, D = 100, 1000
-# X = np.random.rand(N, D).astype("float32")
-# # Ground-truth vector
-# W, b = np.random.rand(D).astype("float32"), np.random.rand()
-# # Response variables
-# Y = X @ W + np.random.randn(N)
-
-
-# class LinearRegressionDataset:
-#     def __getitem__(self, idx):
-#         return (X[idx], np.array(Y[idx]).astype("float32"))
-
-#     def __len__(self):
-#         return len(X)
 
 
 class Client:

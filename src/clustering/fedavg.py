@@ -1,4 +1,5 @@
 import os
+from math import ceil
 from time import time
 
 from src.clustering.base import ClusterFLAlgo
@@ -9,6 +10,10 @@ from src.utils import check_nan
 class FedAvg(ClusterFLAlgo):
     def __init__(self, config, tune=False, tune_config=None):
         super(FedAvg, self).__init__(config, tune, tune_config)
+        if tune:
+            self.config["rounds"] = ceil(
+                self.config["iterations"] / self.config["local_iter"]
+            )
         self.fedavg_path = os.path.join(self.config["path"]["results"])
 
         self.fedavg_trainer = ClusterTrainer(self.config, 0)

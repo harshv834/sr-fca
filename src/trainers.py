@@ -8,9 +8,16 @@ from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 
 from src.models.base import MODEL_DICT
-from src.utils import (avg_metrics, check_nan, compute_metric, get_device,
-                       get_lr_scheduler, get_optimizer, wt_dict_diff,
-                       wt_dict_norm)
+from src.utils import (
+    avg_metrics,
+    check_nan,
+    compute_metric,
+    get_device,
+    get_lr_scheduler,
+    get_optimizer,
+    wt_dict_diff,
+    wt_dict_norm,
+)
 
 
 class BaseTrainer(ABC):
@@ -167,11 +174,9 @@ class ClientTrainer(BaseTrainer):
             self.metrics = {}
         else:
             metrics = None
-
         optimizer = get_optimizer(self.model.parameters(), self.config)
         scheduler = get_lr_scheduler(self.config, optimizer, local_iter, round)
         scaler = GradScaler()
-
         if self.lstm_flag:
             batch_size, hidden = None, None
         for iteration in tqdm(range(local_iter)):
@@ -180,11 +185,9 @@ class ClientTrainer(BaseTrainer):
             optimizer.zero_grad(set_to_none=True)
             (X, Y) = client_data.sample_batch(train=True)
             if self.lstm_flag:
-                if batch_size is None:
+                if batch_size is None or X.shape[0] != batch_size:
                     batch_size = X.shape[0]
                     hidden = self.model.zero_state(batch_size)
-                if X.shape[0] < batch_size:
-                    break
 
             if self.config["dataset"]["name"] in ["synthetic", "shakespeare"]:
                 X, Y = X.to(self.device), Y.to(self.device)
@@ -216,8 +219,8 @@ class ClientTrainer(BaseTrainer):
                     if check_nan(metrics):
                         self.model.eval()
                         self.model.cpu()
-                        # raise ValueError("Nan or inf occurred in metrics")
-                        return metrics
+                        raise ValueError("Nan or inf occurred in metrics")
+                        # return metrics
                 if (
                     iteration % self.config["freq"]["save"] == 0
                     or iteration == local_iter - 1
@@ -273,10 +276,6 @@ class ClusterTrainer(BaseTrainer):
         else:
             last_round = rounds - 1
             first_round = 0
-        # print("Here")
-        # import ipdb
-
-        # ipdb.set_trace()
         for round_id in tqdm(range(first_round, last_round + 1)):
             self.model.train()
             self.model = self.model.to(memory_format=torch.channels_last).cuda()
@@ -301,8 +300,8 @@ class ClusterTrainer(BaseTrainer):
                 if check_nan(metrics):
                     self.model.eval()
                     self.model.cpu()
-                    # raise ValueError("Nan or inf occurred in metrics")
-                    return metrics
+                    raise ValueError("Nan or inf occurred in metrics")
+                    # return metrics
             if self.stop_threshold is not None:
                 self.client_wt_diff = {
                     i: wt_dict_diff(

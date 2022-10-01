@@ -108,11 +108,9 @@ def compute_metric(
         total, total_num = 0.0, 0.0
         for X, Y in loader:
             if lstm_flag:
-                if batch_size is None:
+                if batch_size is None or X.shape[0] != batch_size:
                     batch_size = X.shape[0]
                     hidden = model.zero_state(batch_size)
-                if X.shape[0] < batch_size:
-                    break
             if device is not None:
                 X, Y = X.to(device), Y.to(device)
                 if lstm_flag:

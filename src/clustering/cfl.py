@@ -1,5 +1,6 @@
 import itertools
 import os
+from math import ceil
 from time import time
 
 import numpy as np
@@ -8,13 +9,22 @@ from tqdm import tqdm
 
 from src.clustering.base import ClusterFLAlgo
 from src.trainers import ClusterTrainer
-from src.utils import (avg_metrics, check_nan, compute_alpha_max, wt_dict_dot,
-                       wt_dict_norm)
+from src.utils import (
+    avg_metrics,
+    check_nan,
+    compute_alpha_max,
+    wt_dict_dot,
+    wt_dict_norm,
+)
 
 
 class CFL(ClusterFLAlgo):
     def __init__(self, config, tune=False, tune_config=None):
         super(CFL, self).__init__(config, tune, tune_config)
+        if tune:
+            self.config["rounds"] = ceil(
+                self.config["iterations"] / self.config["local_iter"]
+            )
         self.cluster_path = os.path.join(self.config["path"]["results"], "clusters")
         self.cluster_map = {0: range(self.config["num_clients"])}
         self.cluster_trainers = {}

@@ -14,10 +14,6 @@ class ClusterFLAlgo(ABC):
         if self.tune:
             assert tune_config is not None, "No hyperparameter config provided"
             self.config = tune_config
-            self.config["refine"]["rounds"] = ceil(
-                int(self.config["init"]["iterations"])
-                // int(self.config["refine"]["local_iter"])
-            )
             # print("tune_config:", tune_config)
             # print("fldataset config", config)
             self.config = config | self.config
@@ -40,10 +36,10 @@ class ClusterFLAlgo(ABC):
             for cluster_id in zero_client_clusters:
                 zero_client_cluster_names += " {}".format(cluster_id)
 
-            # raise ValueError(
-            #     "Clusters "
-            #     + zero_client_cluster_names
-            #     + " have 0 clients after "
-            #     + info
-            # )
-            self.cluster_map = TRIAL_MAP
+            raise ValueError(
+                "Clusters "
+                + zero_client_cluster_names
+                + " have 0 clients after "
+                + info
+            )
+            # self.cluster_map = TRIAL_MAP
