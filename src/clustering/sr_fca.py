@@ -26,7 +26,6 @@ class SRFCA(ClusterFLAlgo):
         }
 
     def cluster(self, experiment):
-
         self.config["time"]["tcluster"] = time()
         self.init(experiment)
         self.config["time"]["tnew"] = time()
@@ -38,15 +37,15 @@ class SRFCA(ClusterFLAlgo):
         self.config["time"]["tcluster"] = self.config["time"]["tnew"]
 
         if check_nan(self.init_metrics):
-            raise ValueError("Nan or inf occurred in metrics")
+            # raise ValueError("Nan or inf occurred in metrics")
             # return self.init_metrics
-            # print("Nan or inf occurred in metrics")
+            print("Nan or inf occurred in metrics")
 
         for refine_step in range(self.config["num_refine_steps"]):
             self.refine(experiment, refine_step)
             if check_nan(self.refine_metrics[refine_step]):
-                raise ValueError("Nan or inf occurred in metrics")
-                # return self.refine_metrics[refine_step]
+                # raise ValueError("Nan or inf occurred in metrics")
+                return self.refine_metrics[refine_step]
             self.config["time"]["tnew"] = time()
             print(
                 "Time taken by REFINE step{} : {} s".format(
@@ -59,10 +58,10 @@ class SRFCA(ClusterFLAlgo):
         return self.refine_metrics[self.config["num_refine_steps"] - 1]
 
     def init(self, experiment):
-
         client_dict = experiment.client_dict
         init_path = os.path.join(self.config["path"]["results"], "init")
         init_metrics = []
+
         for i in self.client_trainers.keys():
             client_save_dir = os.path.join(init_path, "client_{}".format(i))
             self.client_trainers[i].set_save_dir(client_save_dir)
@@ -76,8 +75,8 @@ class SRFCA(ClusterFLAlgo):
 
         self.dist_clustering(client_dict, merge=False)
         if len(self.cluster_map.keys()) == 0:
-            raise ValueError("Made 0 clusters after INIT")
-            # self.cluster_map = TRIAL_MAP
+            # raise ValueError("Made 0 clusters after INIT")
+            self.cluster_map = TRIAL_MAP
 
         torch.save(self.cluster_map, os.path.join(init_path, "cluster_map.pth"))
 
@@ -101,7 +100,6 @@ class SRFCA(ClusterFLAlgo):
             )
             self.cluster_trainers[i] = cluster_trainer
             refine_metrics.append((len(client_idx), cluster_metrics))
-
         if refine_step == 0:
             self.refine_metrics = {}
         self.refine_metrics[refine_step] = avg_metrics(refine_metrics)
@@ -113,17 +111,17 @@ class SRFCA(ClusterFLAlgo):
         self.recluster(experiment)
         self.empty_cluster_check("REFINE step {}".format(refine_step))
         if len(self.cluster_map.keys()) == 0:
-            raise ValueError(
-                "Made 0 clusters after RECLUSTER in Refine step {}".format(refine_step)
-            )
-            # self.cluster_map = TRIAL_MAP
+            # raise ValueError(
+            #     "Made 0 clusters after RECLUSTER in Refine step {}".format(refine_step)
+            # )
+            self.cluster_map = TRIAL_MAP
 
         self.dist_clustering(client_dict, merge=True)
         if len(self.cluster_map.keys()) == 0:
-            raise ValueError(
-                "Made 0 clusters after MERGE in Refine step {}".format(refine_step)
-            )
-            # self.cluster_map = TRIAL_MAP
+            # raise ValueError(
+            #     "Made 0 clusters after MERGE in Refine step {}".format(refine_step)
+            # )
+            self.cluster_map = TRIAL_MAP
         torch.save(self.cluster_map, os.path.join(refine_path, "cluster_map.pth"))
 
     def recluster(self, experiment):

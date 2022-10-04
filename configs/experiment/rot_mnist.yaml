@@ -4,6 +4,7 @@ dataset:
   num_clusters: 2
   input_size : 784
   num_classes : 10
+  hidden_size : 2048
 path: experiments/rot_mnist/
 batch:
   train: 50

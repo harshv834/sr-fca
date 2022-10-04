@@ -1,15 +1,11 @@
 import os
-from math import ceil, sqrt
-from shutil import rmtree
 from typing import List
 
 import numpy as np
 import torch
-import torchvision
 import torchvision.transforms as transforms
-from ffcv.fields import FloatField, IntField, NDArrayField, RGBImageField
+from ffcv.fields import IntField, NDArrayField, RGBImageField
 from ffcv.fields.decoders import (
-    FloatDecoder,
     IntDecoder,
     NDArrayDecoder,
     SimpleRGBImageDecoder,
@@ -21,15 +17,15 @@ from ffcv.transforms import (
     Cutout,
     RandomHorizontalFlip,
     RandomTranslate,
-    ToDevice,
     ToTensor,
     ToTorchImage,
 )
 from ffcv.transforms.common import Squeeze
 from ffcv.writer import DatasetWriter
 from torch.utils.data import DataLoader, Dataset
+import pytorch_lightning as pl
 
-from src.utils import get_device
+from src.utils import train_val_split
 
 CIFAR_MEAN = [0.4914, 0.4822, 0.4465]
 CIFAR_STD = [0.2023, 0.1994, 0.2010]
@@ -67,93 +63,136 @@ class ClientWriteDataset(Dataset):
                 )
 
 
-class Client:
+class Client(pl.LightningDataModule):
     def __init__(self, config, client_dataset, client_id, tune=False):
-
+        super(Client, self).__init__()
+        self.config = config
         train_data, test_data = client_dataset
+        train_data, val_data = train_val_split(train_data)
         self.client_id = client_id
-        train_writeset = ClientWriteDataset(config, train_data)
-        test_writeset = ClientWriteDataset(config, test_data)
+        self.train_writeset = ClientWriteDataset(config, train_data)
+        self.val_writeset = ClientWriteDataset(config, val_data)
+        self.test_writeset = ClientWriteDataset(config, test_data)
 
-        if config["dataset"]["name"] not in ["synthetic", "shakespeare"]:
-
+        if config["dataset"]["name"] == "rot_cifar10":
             temp_path = os.path.join(config["path"]["data"], "tmp_storage")
-            if os.path.exists(temp_path):
-                rmtree(temp_path)
+            # if os.path.exists(temp_path):
+            #     rmtree(temp_path)
             os.makedirs(temp_path, exist_ok=True)
-            train_beton_path = os.path.join(
+            self.train_beton_path = os.path.join(
                 temp_path, "train_client_{}.beton".format(client_id)
             )
-            test_beton_path = os.path.join(
+            self.val_beton_path = os.path.join(
+                temp_path, "val_client_{}.beton".format(client_id)
+            )
+            self.test_beton_path = os.path.join(
                 temp_path, "test_client_{}.beton".format(client_id)
             )
             (
                 writer_pipeline,
-                train_loader_pipeline,
-                test_loader_pipeline,
-            ) = get_pipelines(config, self.client_id)
+                self.train_loader_pipeline,
+                self.test_loader_pipeline,
+            ) = get_pipelines(self.config, self.client_id)
             ## Issues with C code and rewrites when this is not always done.
 
             train_writer = DatasetWriter(
-                train_beton_path, writer_pipeline, num_workers=1
+                self.train_beton_path, writer_pipeline, num_workers=1
             )
-            test_writer = DatasetWriter(test_beton_path, writer_pipeline, num_workers=1)
-            train_writer.from_indexed_dataset(train_writeset)
-            test_writer.from_indexed_dataset(test_writeset)
+            val_writer = DatasetWriter(
+                self.val_beton_path, writer_pipeline, num_workers=1
+            )
+            test_writer = DatasetWriter(
+                self.test_beton_path, writer_pipeline, num_workers=1
+            )
+            train_writer.from_indexed_dataset(self.train_writeset)
+            val_writer.from_indexed_dataset(self.val_writeset)
+            test_writer.from_indexed_dataset(self.test_writeset)
 
-            self.trainloader = Loader(
-                train_beton_path,
-                batch_size=config["batch"]["train"],
-                num_workers=1,
-                order=OrderOption.QUASI_RANDOM,
-                drop_last=True,
-                pipelines=train_loader_pipeline,
-            )
-            self.testloader = Loader(
-                test_beton_path,
-                batch_size=config["batch"]["test"],
-                num_workers=1,
-                order=OrderOption.QUASI_RANDOM,
-                drop_last=False,
-                pipelines=test_loader_pipeline,
-            )
-        else:
-            self.trainloader = DataLoader(
-                train_writeset,
-                batch_size=config["batch"]["train"],
+    def train_dataloader(self):
+        if self.config["dataset"]["name"] != "rot_cifar10":
+            return DataLoader(
+                self.train_writeset,
+                batch_size=self.config["batch"]["train"],
                 shuffle=True,
-                num_workers=1,
+                num_workers=0,
             )
-            self.testloader = DataLoader(
-                test_writeset,
-                batch_size=config["batch"]["test"],
-                shuffle=False,
-                num_workers=1,
-            )
-
-        if tune:
-            self.train_iterator = None
-            self.test_iterator = None
         else:
-            self.train_iterator = iter(self.trainloader)
-            self.test_iterator = iter(self.testloader)
+            return Loader(
+                self.train_beton_path,
+                batch_size=self.config["batch"]["train"],
+                num_workers=0,
+                order=OrderOption.SEQUENTIAL,
+                drop_last=True,
+                pipelines=self.train_loader_pipeline,
+                # distributed=True,
+                os_cache=True,
+            )
 
-    def sample_batch(self, train=True):
-        if self.test_iterator is None and self.test_iterator is None:
-            self.train_iterator = iter(self.trainloader)
-            self.test_iterator = iter(self.testloader)
-        iterator = self.train_iterator if train else self.test_iterator
-        try:
-            (X, y) = next(iterator)
-        except StopIteration:
-            if train:
-                self.train_iterator = iter(self.trainloader)
-                iterator = self.train_iterator
-            else:
-                self.test_iterator = iter(self.testloader)
-                iterator = self.test_iterator
-            (X, y) = next(iterator)
-        return (X, y)
+    def test_dataloader(self):
+        if self.config["dataset"]["name"] != "rot_cifar10":
+            return DataLoader(
+                self.test_writeset,
+                batch_size=self.config["batch"]["test"],
+                shuffle=False,
+                num_workers=0,
+            )
+        else:
+            return Loader(
+                self.test_beton_path,
+                batch_size=self.config["batch"]["test"],
+                num_workers=0,
+                order=OrderOption.SEQUENTIAL,
+                drop_last=False,
+                os_cache=True,
+                pipelines=self.test_loader_pipeline,
+                # distributed=True,
+            )
+
+    # TODO : Make this a loader
+    def val_dataloader(self):
+        if self.config["dataset"]["name"] != "rot_cifar10":
+            return DataLoader(
+                self.val_writeset,
+                batch_size=self.config["batch"]["test"],
+                shuffle=False,
+                num_workers=0,
+            )
+        else:
+            return Loader(
+                self.val_beton_path,
+                batch_size=self.config["batch"]["test"],
+                num_workers=0,
+                order=OrderOption.SEQUENTIAL,
+                drop_last=False,
+                os_cache=True,
+                pipelines=self.test_loader_pipeline,
+                # distributed=True,
+            )
+
+        # TODO : Add tune behaviour compatibility
+        # if tune:
+        #     self.train_iterator = None
+        #     self.test_iterator = None
+        # else:
+        #     self.train_iterator = iter(self.trainloader)
+        #     self.test_iterator = iter(self.testloader)
+
+    # def sample_batch(self, train=True):
+    #     if self.test_iterator is None and self.test_iterator is None:
+    #         self.train_iterator = iter(self.trainloader)
+    #         self.test_iterator = iter(self.testloader)
+    #     iterator = self.train_iterator if train else self.test_iterator
+    #     try:
+    #         (X, y) = next(iterator)
+    #     except StopIteration:
+    #         if train:
+    #             self.train_iterator = iter(self.trainloader)
+    #             iterator = self.train_iterator
+    #         else:
+    #             self.test_iterator = iter(self.testloader)
+    #             iterator = self.test_iterator
+    #         (X, y) = next(iterator)
+    #     return (X, y)
 
 
 def get_pipelines(config, i):
@@ -186,18 +225,8 @@ def get_pipelines(config, i):
             "y": IntField(),
         }
         train_loader_pipeline = {
-            "X": [
-                NDArrayDecoder(),
-                ToTensor(),
-                ToDevice(torch.device(get_device(config, i)), non_blocking=True),
-                Convert(torch.float16),
-            ],
-            "y": [
-                IntDecoder(),
-                ToTensor(),
-                Squeeze(),
-                ToDevice(torch.device(get_device(config, i)), non_blocking=True),
-            ],
+            "X": [NDArrayDecoder(), ToTensor()],
+            "y": [IntDecoder(), ToTensor(), Squeeze()],
         }
         test_loader_pipeline = train_loader_pipeline
     elif config["dataset"]["name"].endswith("cifar10"):
@@ -205,7 +234,6 @@ def get_pipelines(config, i):
         label_pipeline: List[Operation] = [
             IntDecoder(),
             ToTensor(),
-            ToDevice("cuda:0"),
             Squeeze(),
         ]
         train_image_pipeline: List[Operation] = [
@@ -214,18 +242,16 @@ def get_pipelines(config, i):
             RandomTranslate(padding=2),
             Cutout(8, tuple(map(int, CIFAR_MEAN))),
             ToTensor(),
-            ToDevice("cuda:0", non_blocking=True),
             ToTorchImage(),
-            Convert(torch.float16),
+            Convert(torch.float32),
             transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
         ]
 
         test_image_pipeline: List[Operation] = [
             SimpleRGBImageDecoder(),
             ToTensor(),
-            ToDevice("cuda:0", non_blocking=True),
             ToTorchImage(),
-            Convert(torch.float16),
+            Convert(torch.float32),
             transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
         ]
         train_loader_pipeline = {"X": train_image_pipeline, "y": label_pipeline}

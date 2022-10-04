@@ -1,5 +1,4 @@
-from src.clustering.sr_fca import SRFCA
-
+from .sr_fca import SRFCA
 from .cfl import CFL
 from .fedavg import FedAvg
 from .ifca import IFCA

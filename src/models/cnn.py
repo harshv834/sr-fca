@@ -3,10 +3,11 @@ from math import ceil, sqrt
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .base import BaseModel
 
-class SimpleCNN(nn.Module):
-    def __init__(self):
-        super().__init__()
+class SimpleCNN(BaseModel):
+    def __init__(self, config):
+        super(SimpleCNN, self).__init__(config)
         self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 5), padding="same")
         self.pool1 = nn.MaxPool2d((2, 2), stride=2)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 5), padding="same")

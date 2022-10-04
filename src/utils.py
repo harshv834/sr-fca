@@ -12,6 +12,8 @@ import torch
 import torch.optim as optim
 import yaml
 from torch.cuda.amp import autocast
+from pytorch_lightning.utilities.seed import seed_everything
+import pytorch_lightning as pl
 
 
 def args_getter():
@@ -145,7 +147,7 @@ def get_optimizer(model_parameters, config):
     return optimizer
 
 
-def get_lr_scheduler(config, optimizer, local_iter, round):
+def get_lr_scheduler(optimizer, config, local_iter, round_id):
     cond_1 = config["dataset"]["name"] == "rot_cifar10"
     cond_2 = config["clustering"] == "sr_fca"
     if cond_1 and cond_2:
@@ -159,13 +161,13 @@ def get_lr_scheduler(config, optimizer, local_iter, round):
             [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
             [0, 1, 0],
         )
-        if round is not None:
-            if type(round) == tuple:
-                first_iter = round[0] * local_iter
-                last_iter = max((round[1] + 1) * local_iter, lr_schedule.shape[0])
+        if round_id is not None:
+            if type(round_id) == tuple:
+                first_iter = round_id[0] * local_iter
+                last_iter = max((round_id[1] + 1) * local_iter, lr_schedule.shape[0])
             else:
                 first_iter = 0
-                last_iter = max((round + 1) * local_iter, lr_schedule.shape[0])
+                last_iter = max((round_id + 1) * local_iter, lr_schedule.shape[0])
             lr_schedule = lr_schedule[first_iter:last_iter]
     elif not cond_1 and cond_2:
         lr_schedule = np.ones(config["init"]["iterations"] + 1)
@@ -177,27 +179,45 @@ def get_lr_scheduler(config, optimizer, local_iter, round):
 
 
 def avg_metrics(metrics_list):
-
     avg_metric_dict = {}
 
     metric_keys = metrics_list[0][1].keys()
     for key in metric_keys:
-        avg_metric_dict[key] = {}
-        for metric_name in metrics_list[0][1][key].keys():
-            avg_metric_dict[key][metric_name] = 0.0
+        avg_metric_dict[key] = 0.0
     tot_count = 0
     for (count, metric_dict) in metrics_list:
         tot_count += count
         for key in metric_keys:
-            for metric_name in metric_dict[key].keys():
-                avg_metric_dict[key][metric_name] += (
-                    count * metric_dict[key][metric_name]
-                )
+            val = metric_dict[key]
+            if type(val) == torch.tensor:
+                val = val.item()
+            avg_metric_dict[key] += count * val
     for key in metric_keys:
-        for metric_name in metrics_list[0][1][key].keys():
-            avg_metric_dict[key][metric_name] = (
-                avg_metric_dict[key][metric_name] / tot_count
-            )
+        avg_metric_dict[key] = avg_metric_dict[key] / tot_count
+
+    # avg_metric_dict = {}
+
+    # metric_keys = metrics_list[0][1].keys()
+    # for key in metric_keys:
+    #     avg_metric_dict[key] = {}
+    #     for metric_name in metrics_list[0][1][key].keys():
+    #         avg_metric_dict[key][metric_name] = 0.0
+    # tot_count = 0
+    # for (count, metric_dict) in metrics_list:
+    #     tot_count += count
+    #     for key in metric_keys:
+    #         for metric_name in metric_dict[key].keys():
+    #             val = metric_dict[key][metric_name]
+    #             if type(val) == torch.tensor:
+    #                 val = val.item()
+    #             avg_metric_dict[key][metric_name] += (
+    #                 count * val
+    #             )
+    # for key in metric_keys:
+    #     for metric_name in metrics_list[0][1][key].keys():
+    #         avg_metric_dict[key][metric_name] = (
+    #             avg_metric_dict[key][metric_name] / tot_count
+    #         )
     return avg_metric_dict
 
 
@@ -208,19 +228,57 @@ def euclidean_dist(w1, w2):
     return dist
 
 
-def compute_dist(trainer_1, trainer_2, client_1, client_2, dist_metric):
+# def compute_loss(model_trainer, client, train=True):
+
+#     model_trainer.trainer.test(
+#         model_trainer.model,
+#         client.train_dataloader() if train else client.test_dataloader(),
+#         verbose=False
+#     )
+#     return model_trainer.trainer.logged_metrics["test_loss"]
+
+
+def compute_dist(model_1, model_2, client_1, client_2, dist_metric):
     if dist_metric == "euclidean":
-        return euclidean_dist(trainer_1.get_model_wts(), trainer_2.get_model_wts())
+        return euclidean_dist(model_1.get_model_wts(), model_2.get_model_wts())
     elif dist_metric == "cross_entropy":
-        trainer_1_client_2 = 0.0
+
+        model_1_client_2 = 0.0
         for client in client_2:
-            trainer_1_client_2 += trainer_1.compute_loss(client)
-        trainer_1_client_2 = trainer_1_client_2 / len(client_2)
-        trainer_2_client_1 = 0.0
+            trainer = pl.Trainer(
+                devices=torch.cuda.device_count(),
+                accelerator="auto",
+                enable_model_summary=False,
+                enable_progress_bar=False,
+                strategy="ddp_find_unused_parameters_false",
+                precision=16,
+                amp_backend="native",
+            )
+            trainer.test(
+                model_1.model, client.train_dataloader(), verbose=False, ckpt_path=None
+            )
+            model_1_client_2 += trainer.logged_metrics["test_loss"]
+            # model_1_client_2 += compute_loss(model_1, client, train=True)
+        model_1_client_2 = model_1_client_2 / len(client_2)
+        model_2_client_1 = 0.0
         for client in client_1:
-            trainer_2_client_1 += trainer_2.compute_loss(client)
-        trainer_2_client_1 = trainer_2_client_1 / len(client_1)
-        return (trainer_1_client_2 + trainer_2_client_1) / 2
+            trainer = pl.Trainer(
+                devices=torch.cuda.device_count(),
+                accelerator="auto",
+                enable_model_summary=False,
+                enable_progress_bar=False,
+                strategy="ddp_find_unused_parameters_false",
+                precision=16,
+                amp_backend="native",
+            )
+            trainer.test(
+                model_2.model, client.train_dataloader(), verbose=False, ckpt_path=None
+            )
+
+            model_2_client_1 += trainer.logged_metrics["test_loss"]
+            # model_2_client_1 += compute_loss(model_2, client, train=True)
+        model_2_client_1 = model_2_client_1 / len(client_1)
+        return (model_1_client_2 + model_2_client_1) / 2
     else:
         raise ValueError(
             "{} is not a valid distance metric. Implemented distance metrics are euclidean and cross_entropy".format(
@@ -267,6 +325,8 @@ def read_data_config(args_dict):
             args_dict["clustering"],
         ),
     }
+    seed_everything(config["seed"], workers=True)
+
     ## Make directories for data and results
     os.makedirs(config["path"]["data"], exist_ok=True)
     os.makedirs(config["path"]["results"], exist_ok=True)
@@ -298,10 +358,9 @@ def get_device(config, i, cluster=False):
 
 
 def check_nan(metrics):
-    for key in metrics.keys():
-        for val in metrics[key].values():
-            if np.isnan(np.array(val)).any() or np.isinf(np.array(val)).any():
-                return True
+    for val in metrics.values():
+        if np.isnan(np.array(val)).any() or np.isinf(np.array(val)).any():
+            return True
 
     return False
 
@@ -402,3 +461,13 @@ def read_data(train_data_dir, test_data_dir):
     assert train_groups == test_groups
 
     return train_clients, train_groups, train_data, test_data
+
+
+def train_val_split(train_data, val_fraction=0.2):
+    (X, y) = train_data
+    idx = np.arange(X.shape[0])
+    np.random.shuffle(idx)
+    val_start_idx = int((1 - val_fraction) * X.shape[0])
+    train_data = (X[:val_start_idx], y[:val_start_idx])
+    val_data = (X[val_start_idx:], y[val_start_idx:])
+    return train_data, val_data

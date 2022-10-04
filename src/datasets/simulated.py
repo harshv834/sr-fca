@@ -54,15 +54,18 @@ def apply_client_het(train_chunks, test_chunks, transformation, num_clusters):
                 train_chunks[i] = (
                     (
                         255 * torch.ones(train_chunks[i][0].shape) - train_chunks[i][0]
-                    ).byte(),
+                    ).float(),
                     train_chunks[i][1],
                 )
                 test_chunks[i] = (
                     (
                         255 * torch.ones(test_chunks[i][0].shape) - test_chunks[i][0]
-                    ).byte(),
+                    ).float(),
                     test_chunks[i][1],
                 )
+            else:
+                train_chunks[i] = (train_chunks[i][0].float(), train_chunks[i][1])
+                test_chunks[i] = (test_chunks[i][0].float(), test_chunks[i][1])
 
     elif transformation == "rot":
 
@@ -96,6 +99,8 @@ def load_simulated_dataset(dataset_name, client_het, dataset_path, config):
 
 
 def rot_img(x, theta):
+    if theta == 0.0:
+        return x
     if len(x.shape) == 4:
         x = x.transpose(0, 3, 1, 2)
     numpy_arr = False

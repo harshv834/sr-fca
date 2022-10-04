@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .base import BaseModel
 
 
 class Net(nn.Module):
@@ -66,9 +67,10 @@ def conv_bn(channels_in, channels_out, kernel_size=3, stride=1, padding=1, group
     )
 
 
-class ResNet9(nn.Module):
-    def __init__(self, NUM_CLASSES=10):
-        super(ResNet9, self).__init__()
+class ResNet9(BaseModel):
+    def __init__(self, config):
+        super(ResNet9, self).__init__(config)
+        self.num_classes = self.config["dataset"]["num_classes"]
         self.model = nn.Sequential(
             conv_bn(3, 64, kernel_size=3, stride=1, padding=1),
             conv_bn(64, 128, kernel_size=5, stride=2, padding=2),
@@ -79,9 +81,15 @@ class ResNet9(nn.Module):
             conv_bn(256, 128, kernel_size=3, stride=1, padding=0),
             nn.AdaptiveMaxPool2d((1, 1)),
             Flatten(),
-            nn.Linear(128, NUM_CLASSES, bias=False),
+            nn.Linear(128, self.num_classes, bias=False),
             Mul(0.2),
         )
 
     def forward(self, x):
         return self.model(x)
+
+    # TODO : Add scheduler for this
+    # def configure_optimizers(self):
+    #     optimizer= super().configure_optimizers()()
+    #     lr_scheduler = None
+    #     return

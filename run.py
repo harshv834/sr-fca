@@ -8,8 +8,13 @@ from src.datasets.base import FLDataset
 from src.utils import args_getter
 
 tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
+import pytorch_lightning as pl
+import logging
 
+logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
+import warnings
 
+warnings.filterwarnings("ignore")
 if __name__ == "__main__":
     t0 = time()
     args = args_getter()

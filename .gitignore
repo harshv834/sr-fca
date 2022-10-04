@@ -130,3 +130,5 @@ dmypy.json
 
 ## Extra directories to ignore
 experiments/*
+lightning_logs/*
+checkpoints/*
