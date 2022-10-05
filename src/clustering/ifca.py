@@ -9,16 +9,14 @@ from tqdm import tqdm
 
 from src.clustering.base import ClusterFLAlgo
 from src.trainers import ClusterTrainer
-from src.utils import avg_metrics, check_nan
+from src.utils import avg_metrics, check_nan, tune_config_update
 
 
 class IFCA(ClusterFLAlgo):
     def __init__(self, config, tune=False, tune_config=None):
         super(IFCA, self).__init__(config, tune, tune_config)
         if tune:
-            self.config["rounds"] = ceil(
-                self.config["iterations"] / self.config["local_iter"]
-            )
+            self.config = tune_config_update(self.config)
         self.init_cluster_map()
         self.cluster_trainers = {}
         self.cluster_path = os.path.join(self.config["path"]["results"], "clusters")
@@ -51,13 +49,14 @@ class IFCA(ClusterFLAlgo):
                     local_iter=self.config["local_iter"],
                     rounds=(round_id, round_id + 1),
                 )
-                if check_nan(metrics):
-                    # return metrics
-                    raise ValueError("Nan or inf occurred in metrics")
-            self.round_metrics[round_id].append(
-                (len(self.cluster_map[cluster_id]), metrics)
-            )
-            self.round_metrics[round_id] = avg_metrics(self.round_metrics[round_id])
+                if metrics is not None:
+                    if check_nan(metrics):
+                        # return metrics
+                        raise ValueError("Nan or inf occurred in metrics")
+                self.round_metrics[round_id].append(
+                    (len(self.cluster_map[cluster_id]), metrics)
+                )
+                self.round_metrics[round_id] = avg_metrics(self.round_metrics[round_id])
             if (
                 round_id % self.config["freq"]["save"] == 0
                 or round_id == self.config["rounds"] - 1
@@ -78,9 +77,8 @@ class IFCA(ClusterFLAlgo):
                 client_cluster_metrics[client_id] = np.inf * np.ones(
                     self.config["num_clusters"]
                 )
-            client_cluster_metrics[client_id][cluster_id] = self.cluster_trainers[
-                cluster_id
-            ].compute_loss(client_dict[client_id], train=True)
+            setattr(self.cluster_trainers[cluster_id], "client_idx", [client_id])
+            client_cluster_metrics[client_id][cluster_id] = self.cluster_trainers[cluster_id].compute_metrics(client_dict, train=True)["test_loss"]
         for cluster_id in self.cluster_map.keys():
             self.cluster_map[cluster_id] = []
         for client_id in range(self.config["num_clients"]):

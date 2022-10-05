@@ -9,17 +9,15 @@ import torch
 
 from src.clustering.base import TRIAL_MAP, ClusterFLAlgo
 from src.trainers import ClientTrainer, ClusterTrainer
-from src.utils import avg_metrics, check_nan, compute_dist, correlation_clustering
+from src.utils import (avg_metrics, check_nan, compute_dist,
+                       correlation_clustering, tune_config_update)
 
 
 class SRFCA(ClusterFLAlgo):
     def __init__(self, config, tune=False, tune_config=None):
         super(SRFCA, self).__init__(config, tune, tune_config)
         if tune:
-            self.config["refine"]["rounds"] = ceil(
-                int(self.config["init"]["iterations"])
-                // int(self.config["refine"]["local_iter"])
-            )
+            self.config = tune_config_update(self.config)
         self.client_trainers = {
             i: ClientTrainer(config=self.config, client_id=i, mode="solo")
             for i in range(self.config["num_clients"])
@@ -37,15 +35,15 @@ class SRFCA(ClusterFLAlgo):
         self.config["time"]["tcluster"] = self.config["time"]["tnew"]
 
         if check_nan(self.init_metrics):
-            # raise ValueError("Nan or inf occurred in metrics")
+            raise ValueError("Nan or inf occurred in metrics")
             # return self.init_metrics
-            print("Nan or inf occurred in metrics")
+            # print("Nan or inf occurred in metrics")
 
         for refine_step in range(self.config["num_refine_steps"]):
             self.refine(experiment, refine_step)
             if check_nan(self.refine_metrics[refine_step]):
-                # raise ValueError("Nan or inf occurred in metrics")
-                return self.refine_metrics[refine_step]
+                raise ValueError("Nan or inf occurred in metrics")
+                # return self.refine_metrics[refine_step]
             self.config["time"]["tnew"] = time()
             print(
                 "Time taken by REFINE step{} : {} s".format(
@@ -137,6 +135,7 @@ class SRFCA(ClusterFLAlgo):
                 [client_dict[key] for key in self.cluster_map[cluster_id]],
                 [client_dict[client_id]],
                 self.config["dist_metric"],
+                self.config["tune"]
             )
             if client_id not in cluster_client_product.keys():
                 cluster_client_product[client_id] = {cluster_id: dist}
@@ -183,6 +182,7 @@ class SRFCA(ClusterFLAlgo):
                 [client_dict[key] for key in clients[i]],
                 [client_dict[key] for key in clients[j]],
                 self.config["dist_metric"],
+                self.config["tune"]
             )
             if dist <= self.config["dist_threshold"]:
                 graph.add_edge(i, j)

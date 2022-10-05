@@ -2,28 +2,19 @@ import os
 from typing import List
 
 import numpy as np
+import pytorch_lightning as pl
 import torch
 import torchvision.transforms as transforms
 from ffcv.fields import IntField, NDArrayField, RGBImageField
-from ffcv.fields.decoders import (
-    IntDecoder,
-    NDArrayDecoder,
-    SimpleRGBImageDecoder,
-)
+from ffcv.fields.decoders import (IntDecoder, NDArrayDecoder,
+                                  SimpleRGBImageDecoder)
 from ffcv.loader import Loader, OrderOption
 from ffcv.pipeline.operation import Operation
-from ffcv.transforms import (
-    Convert,
-    Cutout,
-    RandomHorizontalFlip,
-    RandomTranslate,
-    ToTensor,
-    ToTorchImage,
-)
+from ffcv.transforms import (Convert, Cutout, RandomHorizontalFlip,
+                             RandomTranslate, ToTensor, ToTorchImage)
 from ffcv.transforms.common import Squeeze
 from ffcv.writer import DatasetWriter
 from torch.utils.data import DataLoader, Dataset
-import pytorch_lightning as pl
 
 from src.utils import train_val_split
 

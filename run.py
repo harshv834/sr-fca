@@ -8,8 +8,9 @@ from src.datasets.base import FLDataset
 from src.utils import args_getter
 
 tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
-import pytorch_lightning as pl
 import logging
+
+import pytorch_lightning as pl
 
 logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
 import warnings

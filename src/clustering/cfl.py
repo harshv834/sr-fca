@@ -9,27 +9,21 @@ from tqdm import tqdm
 
 from src.clustering.base import ClusterFLAlgo
 from src.trainers import ClusterTrainer
-from src.utils import (
-    avg_metrics,
-    check_nan,
-    compute_alpha_max,
-    wt_dict_dot,
-    wt_dict_norm,
-)
+from src.utils import (avg_metrics, check_nan, compute_alpha_max, wt_dict_dot,
+                       wt_dict_norm, tune_config_update)
 
 
 class CFL(ClusterFLAlgo):
     def __init__(self, config, tune=False, tune_config=None):
         super(CFL, self).__init__(config, tune, tune_config)
         if tune:
-            self.config["rounds"] = ceil(
-                self.config["iterations"] / self.config["local_iter"]
-            )
+            self.config = tune_config_update(self.config)
         self.cluster_path = os.path.join(self.config["path"]["results"], "clusters")
         self.cluster_map = {0: range(self.config["num_clients"])}
         self.cluster_trainers = {}
 
     def cfl_single_node(self, client_dict, cluster_id):
+        print("clustered fl started for cluster {}".format(cluster_id))
         if len(self.cluster_trainers.keys()) == self.config["num_clusters"]:
             return
         cluster_trainer = ClusterTrainer(
@@ -111,7 +105,17 @@ class CFL(ClusterFLAlgo):
         self.metrics = []
         for cluster_id in self.cluster_map.keys():
             self.cluster_trainers[cluster_id].client_idx = self.cluster_map[cluster_id]
-            metrics = self.cluster_trainers[cluster_id].compute_metrics(client_dict)
+            train_metrics = self.cluster_trainers[cluster_id].compute_metrics(client_dict, train=True)
+            train_metrics_keys = list(train_metrics.keys())
+            for key in train_metrics_keys:
+                val = train_metrics.pop(key)
+                if key.startswith("test"):
+                    new_key = "_".join(["train"] + key.split("_")[1:])                    
+                else:
+                    new_key = key
+                train_metrics[key] = val
+            test_metrics = self.cluster_trainers[cluster_id].compute_metrics(client_dict, train=False)
+            metrics = train_metrics | test_metrics
             if check_nan(metrics):
                 raise ValueError("Nan or inf occurred in metrics")
             self.metrics.append((len(self.cluster_map[cluster_id]), metrics))

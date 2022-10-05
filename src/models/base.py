@@ -1,9 +1,9 @@
-import pytorch_lightning as pl
-import torch.optim as optim
-import torch.nn as nn
-import torchmetrics
-import torch
 import numpy as np
+import pytorch_lightning as pl
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchmetrics
 
 
 class LossMetric(torchmetrics.Metric):

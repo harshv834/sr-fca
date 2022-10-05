@@ -1,7 +1,7 @@
-from .sr_fca import SRFCA
 from .cfl import CFL
 from .fedavg import FedAvg
 from .ifca import IFCA
+from .sr_fca import SRFCA
 
 # from .mocha import MOCHA
 

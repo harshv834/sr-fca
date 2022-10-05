@@ -5,15 +5,17 @@ import os
 import random
 import sys
 from collections import defaultdict
+from math import ceil
 from shutil import rmtree
 
 import numpy as np
+import pytorch_lightning as pl
 import torch
 import torch.optim as optim
 import yaml
-from torch.cuda.amp import autocast
 from pytorch_lightning.utilities.seed import seed_everything
-import pytorch_lightning as pl
+from torch.cuda.amp import autocast
+from ray_lightning import RayStrategy
 
 
 def args_getter():
@@ -66,6 +68,7 @@ def read_algo_config(data_config, tune=False):
         data_config["dataset"]["name"],
         "best_hp.yaml",
     )
+    print("here")
     exists = os.path.exists(path)
     if tune:
         if exists:
@@ -75,7 +78,6 @@ def read_algo_config(data_config, tune=False):
         #     data_config["dataset"]["name"], data_config["clustering"]
         # )
     else:
-
         assert exists, "Algorithm config does not exist for path {}".format(path)
 
         with open(path, "r") as f:
@@ -238,22 +240,35 @@ def euclidean_dist(w1, w2):
 #     return model_trainer.trainer.logged_metrics["test_loss"]
 
 
-def compute_dist(model_1, model_2, client_1, client_2, dist_metric):
+def compute_dist(model_1, model_2, client_1, client_2, dist_metric, tune=False):
     if dist_metric == "euclidean":
         return euclidean_dist(model_1.get_model_wts(), model_2.get_model_wts())
     elif dist_metric == "cross_entropy":
 
         model_1_client_2 = 0.0
         for client in client_2:
-            trainer = pl.Trainer(
-                devices=torch.cuda.device_count(),
-                accelerator="auto",
-                enable_model_summary=False,
-                enable_progress_bar=False,
-                strategy="ddp_find_unused_parameters_false",
-                precision=16,
-                amp_backend="native",
-            )
+            if tune:
+                trainer = pl.Trainer(
+                    enable_model_summary=False,
+                    enable_progress_bar=False,
+                    strategy=RayStrategy(num_workers=3, num_cpus_per_worker=1, use_gpu=2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   ,
+                    precision=16,
+                    amp_backend="native",
+                    log_every_n_steps=1,
+                )
+
+                
+            else:
+                trainer = pl.Trainer(
+                    devices=1,
+                    accelerator="gpu",
+                    enable_model_summary=False,
+                    enable_progress_bar=False,
+                    strategy="ddp_find_unused_parameters_false",
+                    precision=16,
+                    amp_backend="native",
+                    log_every_n_steps=1,
+                )
             trainer.test(
                 model_1.model, client.train_dataloader(), verbose=False, ckpt_path=None
             )
@@ -262,15 +277,26 @@ def compute_dist(model_1, model_2, client_1, client_2, dist_metric):
         model_1_client_2 = model_1_client_2 / len(client_2)
         model_2_client_1 = 0.0
         for client in client_1:
-            trainer = pl.Trainer(
-                devices=torch.cuda.device_count(),
-                accelerator="auto",
-                enable_model_summary=False,
-                enable_progress_bar=False,
-                strategy="ddp_find_unused_parameters_false",
-                precision=16,
-                amp_backend="native",
-            )
+            if tune:
+                trainer = pl.Trainer(
+                    enable_model_summary=False,
+                    enable_progress_bar=False,
+                    strategy=RayStrategy(num_workers=3, num_cpus_per_worker=1, use_gpu=2),
+                    precision=16,
+                    amp_backend="native",
+                    log_every_n_steps=1,
+                )
+            else:
+                trainer = pl.Trainer(
+                    devices=1,
+                    accelerator="gpu",
+                    enable_model_summary=False,
+                    enable_progress_bar=False,
+                    strategy="ddp_find_unused_parameters_false",
+                    precision=16,
+                    amp_backend="native",
+                    log_every_n_steps=1,
+                )
             trainer.test(
                 model_2.model, client.train_dataloader(), verbose=False, ckpt_path=None
             )
@@ -471,3 +497,20 @@ def train_val_split(train_data, val_fraction=0.2):
     train_data = (X[:val_start_idx], y[:val_start_idx])
     val_data = (X[val_start_idx:], y[val_start_idx:])
     return train_data, val_data
+
+def tune_config_update(config):
+    if config["clustering"] == "sr_fca":
+        config["refine"]["rounds"] = ceil(
+            int(config["init"]["iterations"])
+            / int(config["refine"]["local_iter"])
+        )
+
+    elif config["clustering"] in ["ifca","cfl","fedavg"]:
+        config["rounds"] = ceil(
+            int(config["iterations"]) / int(config["local_iter"])
+        )
+    else:
+        raise NotImplementedError("Not implemented clustering {}".format(config["clustering"]))
+    
+    return config
+        

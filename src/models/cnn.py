@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from .base import BaseModel
 
+
 class SimpleCNN(BaseModel):
     def __init__(self, config):
         super(SimpleCNN, self).__init__(config)
