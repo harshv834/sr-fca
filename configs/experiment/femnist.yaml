@@ -1,4 +1,4 @@
-num_clients: 6
+num_clients: 50
 dataset: 
   name: femnist
   input_size : 784

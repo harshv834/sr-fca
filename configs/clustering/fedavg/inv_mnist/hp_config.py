@@ -24,15 +24,16 @@ def get_hp_config(trial, data_config):
         optimizer_param_dict = {"lr": lr}
     else:
         lr = trial.suggest_loguniform("optimizer_params_lr", 1e-4, 1e-2)
-        momentum = trial.suggest_uniform("optimizer_params_momentum", 0.1, 0.9)
-        optimizer_param_dict = {"lr": lr, "betas": (momentum, 0.999)}
+        optimizer_param_dict = {"lr": lr}
+    num_clients_per_round = trial.suggest_int("num_clients_per_round", 1,10)
 
     config = {
         "model": {
-            "name": "simplelin",
+            "name": "two_layer_lin",
             "params": {
-                "dimension": data_config["dataset"]["dimension"],
-                "scale": data_config["dataset"]["scale"],
+                "input_size": data_config["dataset"]["input_size"],
+                "num_classes": data_config["dataset"]["num_classes"],
+                "hidden_size": data_config["dataset"]["hidden_size"]
             },
         },
         "dist_threshold": dist_threshold,
@@ -43,6 +44,7 @@ def get_hp_config(trial, data_config):
         "refine": {"local_iter": refine_local_iter},
         "num_refine_steps": num_refine_steps,
         "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},
+        "num_clients_per_round": 
     }
     config = data_config | config
 

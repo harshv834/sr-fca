@@ -1,12 +1,12 @@
 model: 
   name: one_layer_lin
-rounds : 2
-local_iter: 2
+rounds : 60
+local_iter: 5
 freq:
   metrics: 5
   save: 150
   print: 100
-num_clients_per_round: 3
+num_clients_per_round: 5
 optimizer:
   name: sgd
   params:

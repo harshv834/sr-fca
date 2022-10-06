@@ -11,8 +11,8 @@ def get_hp_config(trial, data_config):
         optimizer_param_dict = {"lr": lr, "momentum": momentum}
     else:
         lr = trial.suggest_loguniform("optimizer_params_lr", 1e-4, 1e-2)
-        optimizer_param_dict = {"lr": lr, "betas": (momentum, 0.999)}
-    num_clients_per_round = trial.suggest_int("num_clients_per_round", 2, 4)
+        optimizer_param_dict = {"lr": lr}
+    num_clients_per_round = trial.suggest_int("num_clients_per_round", 2, 10)
     num_clusters = trial.suggest_int("num_clusters", 2, 5)
     config = {
         "model": {

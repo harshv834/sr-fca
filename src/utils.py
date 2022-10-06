@@ -12,7 +12,7 @@ import torch
 import torch.optim as optim
 import yaml
 from torch.cuda.amp import autocast
-
+from math import ceil
 
 def args_getter():
     parser = argparse.ArgumentParser()
@@ -42,13 +42,13 @@ def args_getter():
         default="sr_fca",
         help="Clustering algo to use for this run, if all is specified run all algorithms and compare",
     )
-    parser.add_argument(
-        "--dist-metric",
-        choices=["euclidean", "cross_entropy"],
-        # required=True,
-        default="euclidean",
-        help="Distance metric to use when comparing models",
-    )
+    # parser.add_argument(
+    #     "--dist-metric",
+    #     choices=["euclidean", "cross_entropy"],
+    #     # required=True,
+    #     default="euclidean",
+    #     help="Distance metric to use when comparing models",
+    # )
     args = parser.parse_args()
     args = vars(args)
     return args
@@ -205,7 +205,7 @@ def euclidean_dist(w1, w2):
     dist = 0.0
     for key in w1.keys():
         dist += np.linalg.norm(w1[key] - w2[key]) ** 2
-    return dist
+    return np.sqrt(dist)
 
 
 def compute_dist(trainer_1, trainer_2, client_1, client_2, dist_metric):
@@ -287,7 +287,8 @@ def set_seeds(seed):
 
 
 def get_device(config, i, cluster=False):
-    if torch.cuda.device_count() == 1:
+
+    if torch.cuda.device_count() >= 1:
         return "cuda:0"
     else:
         raise ValueError(
@@ -402,3 +403,20 @@ def read_data(train_data_dir, test_data_dir):
     assert train_groups == test_groups
 
     return train_clients, train_groups, train_data, test_data
+
+
+def tune_config_update(config):
+    if config["clustering"] == "sr_fca":
+        config["refine"]["rounds"] = ceil(
+            int(config["init"]["iterations"])
+            / int(config["refine"]["local_iter"])
+        )
+
+    elif config["clustering"] in ["ifca","cfl","fedavg"]:
+        config["rounds"] = ceil(
+            int(config["iterations"]) / int(config["local_iter"])
+        )
+    else:
+        raise NotImplementedError("Not implemented clustering {}".format(config["clustering"]))
+
+    return config

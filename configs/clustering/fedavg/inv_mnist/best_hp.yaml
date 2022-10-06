@@ -2,7 +2,7 @@ model:
   name: two_layer_lin
   params:
     input_size: 784
-    hidden_size: 2048
+    hidden_size: 200
     num_classes: 10    
 freq:
   metrics: 5

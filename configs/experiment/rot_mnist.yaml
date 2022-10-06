@@ -1,9 +1,10 @@
-num_clients: 6
+num_clients: 100
 dataset: 
   name: rot_mnist
-  num_clusters: 2
+  num_clusters: 4
   input_size : 784
   num_classes : 10
+  hidden_size : 200
 path: experiments/rot_mnist/
 batch:
   train: 50

@@ -22,3 +22,4 @@ optimizer:
   name: sgd
   params:
     lr: 0.1
+dist_metric : cross_entropy

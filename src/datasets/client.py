@@ -106,7 +106,7 @@ class Client:
                 batch_size=config["batch"]["train"],
                 num_workers=1,
                 order=OrderOption.QUASI_RANDOM,
-                drop_last=True,
+                drop_last=False,
                 pipelines=train_loader_pipeline,
             )
             self.testloader = Loader(

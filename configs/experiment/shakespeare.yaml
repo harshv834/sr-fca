@@ -1,9 +1,8 @@
-num_clients: 6
+num_clients: 50
 dataset: 
   name: shakespeare
 path: experiments/shakespeare/
 batch:
-  train: 64
+  train: 50
   test: 512
 full_data_path : /base_vol/sr_fca_refactor/leaf/data/shakespeare/data
-

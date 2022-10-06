@@ -10,7 +10,7 @@ import torch
 from src.clustering.base import TRIAL_MAP, ClusterFLAlgo
 from src.trainers import ClientTrainer, ClusterTrainer
 from src.utils import avg_metrics, check_nan, compute_dist, correlation_clustering
-
+from tqdm import tqdm
 
 class SRFCA(ClusterFLAlgo):
     def __init__(self, config, tune=False, tune_config=None):
@@ -63,7 +63,7 @@ class SRFCA(ClusterFLAlgo):
         client_dict = experiment.client_dict
         init_path = os.path.join(self.config["path"]["results"], "init")
         init_metrics = []
-        for i in self.client_trainers.keys():
+        for i in tqdm(self.client_trainers.keys()):
             client_save_dir = os.path.join(init_path, "client_{}".format(i))
             self.client_trainers[i].set_save_dir(client_save_dir)
             client_metrics = self.client_trainers[i].train(

@@ -43,6 +43,7 @@ def get_hp_config(trial, data_config):
         "refine": {"local_iter": refine_local_iter},
         "num_refine_steps": num_refine_steps,
         "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},
+        "dist_metric" : "cross_entropy"
     }
     config = data_config | config
 

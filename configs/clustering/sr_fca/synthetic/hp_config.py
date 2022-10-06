@@ -1,6 +1,6 @@
 def get_hp_config(trial, data_config):
     # trial.suggest_categorical("model", [{"name": "simplelin"}])
-    dist_threshold = trial.suggest_loguniform("dist_threshold", 10, 100)
+    dist_threshold = trial.suggest_loguniform("dist_threshold", 5, 50)
     size_threshold = trial.suggest_int("size_threshold", 1, 10)
     # trial.suggest_categorical("freq",[{"metrics": 5, "save": 150, "print": 100}])
     beta = trial.suggest_uniform("beta", 0.1, 0.4)
@@ -34,6 +34,7 @@ def get_hp_config(trial, data_config):
         "num_refine_steps": num_refine_steps,
         "num_clients_per_round": num_clients_per_round,
         "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},
+        "dist_metric" : "euclidean"
     }
     config = data_config | config
 

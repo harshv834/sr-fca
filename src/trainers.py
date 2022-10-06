@@ -19,6 +19,8 @@ from src.utils import (
     wt_dict_norm,
 )
 
+# tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
+
 
 class BaseTrainer(ABC):
     def __init__(self, config):
@@ -179,6 +181,7 @@ class ClientTrainer(BaseTrainer):
         scaler = GradScaler()
         if self.lstm_flag:
             batch_size, hidden = None, None
+        # for iteration in range(local_iter):
         for iteration in tqdm(range(local_iter)):
             self.model.train()
             self.model = self.model.to(memory_format=torch.channels_last).cuda()

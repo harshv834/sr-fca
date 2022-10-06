@@ -1,17 +1,47 @@
-model: 
-  name: one_layer_lin
-num_clusters : 2
+batch:
+  test: 512
+  train: 50
+client_threshold: 59.7535564682078
+clustering: cfl
+dataset:
+  dimension: 1000
+  name: synthetic
+  noise_scale: 0.001
+  num_clusters: 2
+  num_samples:
+    test: 100
+    train: 100
+  scale: 1
+dist_metric: euclidean
 freq:
   metrics: 5
-  save: 150
   print: 100
-num_clients_per_round: 3
-stop_threshold : 0.5
-client_threshold : 0.6
-gamma_max : 0.4
-local_iter: 5
-rounds: 60
-optimizer:
-  name: sgd
+  save: 150
+gamma_max: 0.0951541034323126
+iterations: 300
+local_iter: 4
+model:
+  name: one_layer_lin
   params:
-    lr: 0.1
+    dimension: 1000
+    scale: 1
+num_clients: 50
+num_clients_per_round: 8
+num_clusters: 4
+optimizer:
+  name: adam
+  params:
+    lr: 0.0009777574947510308
+optimizer_name: adam
+optimizer_params_lr: 0.0009777574947510308
+path:
+  data: experiments/synthetic/seed_9/data
+  results: experiments/synthetic/seed_9/results/cfl
+rounds: 75
+seed: 9
+stop_threshold: 13.222732673913923
+time:
+  t0: 1664954692.672569
+  tcluster: 1664955798.315303
+  tdataset: 1664954693.1332622
+  tnew: 1664954693.1332622

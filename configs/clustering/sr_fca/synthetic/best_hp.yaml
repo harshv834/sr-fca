@@ -1,14 +1,14 @@
 model: 
   name: one_layer_lin
 dist_threshold: 0.5
-size_threshold: 1
+size_threshold: 2
 freq:
   metrics: 5
   save: 150
   print: 100
 num_refine_steps: 2
-beta: 0.15
-num_clients_per_round: 3
+beta: 0.2
+num_clients_per_round: 7
 init:
   iterations: 300
 refine:
@@ -17,4 +17,5 @@ refine:
 optimizer:
   name: sgd
   params:
-    lr: 0.1
+    lr: 0.01
+dist_metric : euclidean

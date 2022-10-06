@@ -2,8 +2,8 @@ model:
   name: two_layer_lin
   params:
     input_size: 784
-    hidden_size: 2048
-    num_classes: 10    
+    hidden_size: 200
+    num_classes: 10
 
 num_clusters : 2
 freq:

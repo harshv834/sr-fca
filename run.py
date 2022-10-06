@@ -7,7 +7,7 @@ from src.clustering import CLUSTERING_DICT
 from src.datasets.base import FLDataset
 from src.utils import args_getter
 
-tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
+# tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
 if __name__ == "__main__":

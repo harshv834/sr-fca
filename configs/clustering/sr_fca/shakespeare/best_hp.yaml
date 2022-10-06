@@ -14,14 +14,15 @@ freq:
   print: 100
 num_refine_steps: 2
 beta: 0.15
-num_clients_per_round: 3
+num_clients_per_round: 5
 init:
-  iterations: 10
+  iterations: 300
 refine:
   local_iter: 5
-  rounds: 2
+  rounds: 60
 optimizer:
   name: sgd
   params:
     lr: 0.003
     momentum: 0.9
+dist_metric : cross_entropy
