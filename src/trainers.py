@@ -251,6 +251,7 @@ class ClientTrainer(BaseTrainer):
                     num_workers=3,
                     num_cpus_per_worker=3,
                     use_gpu=True,
+                    find_unused_parameters=False,
                 ),
                 val_check_interval=max(
                     min(
@@ -527,7 +528,7 @@ class ClusterTrainer(BaseTrainer):
 
         ###### This needs a better name
         wts_dict_of_lists = {
-            key: torch.stack([wt[key] for wt in wts_list], dim=0)
+            key: torch.stack([wt[key].cpu() for wt in wts_list], dim=0)
             for key in wts_list[0].keys()
         }
 

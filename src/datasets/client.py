@@ -111,6 +111,7 @@ class Client(pl.LightningDataModule):
                 batch_size=self.config["batch"]["train"],
                 shuffle=True,
                 num_workers=1,
+                persistent_workers=True,
             )
         else:
             return Loader(
@@ -131,6 +132,7 @@ class Client(pl.LightningDataModule):
                 batch_size=self.config["batch"]["test"],
                 shuffle=False,
                 num_workers=1,
+                persistent_workers=True,
             )
         else:
             return Loader(
@@ -152,6 +154,7 @@ class Client(pl.LightningDataModule):
                 batch_size=self.config["batch"]["test"],
                 shuffle=False,
                 num_workers=1,
+                persistent_workers=True,
             )
         else:
             return Loader(

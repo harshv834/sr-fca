@@ -18,7 +18,8 @@ from ray.tune.search import ConcurrencyLimiter
 from ray.tune.search.optuna import OptunaSearch
 from tqdm import tqdm
 from functools import partialmethod
-
+import os
+import contextlib
 from src.clustering import CLUSTERING_DICT
 from src.datasets.base import FLDataset
 from src.utils import args_getter, check_nan, get_search_space, tune_config_update
@@ -29,23 +30,25 @@ logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
 import warnings
 
 warnings.filterwarnings("ignore")
+torch.warnings.filterwarnings("ignore")
+pl.utilities.warnings.warnings.filterwarnings("ignore")
+os.environ["PYTHONWARNINGS"] = "ignore"
 
 
 def objective(config, fldataset):
-
     clustering = CLUSTERING_DICT[args["clustering"]](
         fldataset.config, tune=True, tune_config=config
     )
     metrics = clustering.cluster(fldataset)
     if fldataset.config["dataset"]["name"] == "synthetic":
-        metric_name = "loss"
+        metric_name = "test_loss"
     else:
-        metric_name = "acc"
+        metric_name = "test_acc"
     if check_nan(metrics):
         # raise ValueError("Nan or inf occurred in metrics")
         session.report({"test_metric": np.nan})
     else:
-        session.report({"test_metric": metrics["test"][metric_name].item()})
+        session.report({"test_metric": metrics[metric_name].item()})
 
 
 t0 = time()
@@ -68,27 +71,35 @@ searcher = OptunaSearch(
     seed=fldataset.config["seed"],
 )
 algo = ConcurrencyLimiter(searcher, max_concurrent=4)
-ray.init(
-    address="local",
-    configure_logging=True,
-    logging_level=logging.CRITICAL,
-)
-analysis = tune.run(
-    with_parameters(objective, fldataset=fldataset),
-    search_alg=algo,
-    num_samples=1,
-    name=fldataset.config["dataset"]["name"]
-    + "_"
-    + fldataset.config["clustering"]
-    + "_"
-    + str(fldataset.config["seed"]),
-    metric="test_metric",
-    mode=mode,
-    resources_per_trial=get_tune_resources(
-        num_cpus_per_worker=3, num_workers=3, use_gpu=True
-    ),
-    verbose=False,
-)
+with open(os.devnull, "w") as devnull:
+    with contextlib.redirect_stdout(devnull):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("ignore")
+            with torch.warnings.catch_warnings(record=True) as torch_w:
+                torch.warnings.simplefilter("ignore")
+                with pl.utilities.warnings.warnings.catch_warnings(record=True) as pl_w:
+
+                    ray.init(
+                        address="local",
+                        configure_logging=True,
+                        logging_level=logging.CRITICAL,
+                    )
+                    analysis = tune.run(
+                        with_parameters(objective, fldataset=fldataset),
+                        search_alg=algo,
+                        num_samples=1,
+                        name=fldataset.config["dataset"]["name"]
+                        + "_"
+                        + fldataset.config["clustering"]
+                        + "_"
+                        + str(fldataset.config["seed"]),
+                        metric="test_metric",
+                        mode=mode,
+                        resources_per_trial=get_tune_resources(
+                            num_cpus_per_worker=3, num_workers=3, use_gpu=True
+                        ),
+                        verbose=False,
+                    )
 # ## Check_nan here with config
 try:
     best_result = analysis.best_result

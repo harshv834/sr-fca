@@ -1,7 +1,7 @@
 def get_hp_config(trial, data_config):
     # trial.suggest_categorical("model", [{"name": "simplelin"}])
     # trial.suggest_categorical("freq",[{"metrics": 5, "save": 150, "print": 100}])
-    local_iter = trial.suggest_int("local_iter", 1, 5)
+    local_iter = trial.suggest_int("local_iter", 5, 5)
     optimizer_name = trial.suggest_categorical("optimizer_name", ["sgd", "adam"])
     if optimizer_name == "sgd":
         lr = trial.suggest_loguniform("optimizer_params_lr", 1e-3, 1e-1)
@@ -21,7 +21,7 @@ def get_hp_config(trial, data_config):
             },
         },
         "freq": {"metrics": 30, "save": 60, "print": 30},
-        "iterations": 20,
+        "iterations": 10,
         "local_iter": local_iter,
         "num_clients_per_round": num_clients_per_round,
         "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},
