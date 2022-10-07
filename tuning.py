@@ -36,8 +36,7 @@ def objective(config, fldataset):
     clustering = CLUSTERING_DICT[args["clustering"]](
         fldataset.config, tune=True, tune_config=config
     )
-    clustering.cluster(fldataset)
-    metrics = clustering.final_metrics
+    metrics = clustering.cluster(fldataset)
     if fldataset.config["dataset"]["name"] == "synthetic":
         metric_name = "loss"
     else:
@@ -69,7 +68,11 @@ searcher = OptunaSearch(
     seed=fldataset.config["seed"],
 )
 algo = ConcurrencyLimiter(searcher, max_concurrent=4)
-ray.init(object_store_memory=78643200)
+ray.init(
+    address="local",
+    configure_logging=True,
+    logging_level=logging.CRITICAL,
+)
 analysis = tune.run(
     with_parameters(objective, fldataset=fldataset),
     search_alg=algo,
