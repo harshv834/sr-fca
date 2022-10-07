@@ -95,6 +95,7 @@ with open(os.devnull, "w") as devnull:
                         limit_val_batches=0,
                     )
                     ray.init(
+                        log_to_driver=False,
                         address="local",
                         configure_logging=True,
                         logging_level=logging.CRITICAL,
