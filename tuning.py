@@ -80,6 +80,7 @@ with open(os.devnull, "w") as devnull:
                 with pl.utilities.warnings.warnings.catch_warnings(record=True) as pl_w:
 
                     ray.init(
+                        log_to_driver=False,
                         address="local",
                         configure_logging=True,
                         logging_level=logging.CRITICAL,
