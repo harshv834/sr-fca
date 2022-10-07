@@ -105,7 +105,7 @@ def rot_img(x, theta):
         x = x.transpose(0, 3, 1, 2)
     numpy_arr = False
     if type(x) == np.ndarray:
-        x = torch.tensor(x)
+        x = torch.as_tensor(x)
         numpy_arr = True
     x = TF.rotate(x, theta)
     if numpy_arr:

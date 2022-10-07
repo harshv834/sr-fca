@@ -13,7 +13,7 @@ class OneLayer(BaseModel):
         self.scale = self.config["dataset"]["scale"]
         self.fc = nn.Linear(self.dimension, 1, bias=False)
         self.fc.weight.data = (
-            torch.tensor(
+            torch.as_tensor(
                 np.random.binomial(1, 0.5, size=(1, self.dimension)).astype(np.float32)
             )
             * self.scale

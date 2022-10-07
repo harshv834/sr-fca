@@ -22,8 +22,12 @@ from pytorch_lightning.callbacks.progress import TQDMProgressBar
 from pytorch_lightning.loggers import CSVLogger
 from ray_lightning import RayStrategy
 from tqdm import tqdm
+from filelock import FileLock
 
 from src.utils import avg_metrics, check_nan, wt_dict_diff, wt_dict_norm
+import logging
+
+logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
 
 
 class BaseTrainer(pl.LightningModule):
@@ -51,17 +55,21 @@ class BaseTrainer(pl.LightningModule):
         """Save model weights"""
         if self.save_dir is not None:
             model_path = os.path.join(self.save_dir, "model.pth")
-            torch.save(self.model.state_dict(), model_path)
+            if self.config["tune"]:
+
+                with FileLock(model_path + ".lock"):
+                    torch.save(self.model.state_dict(), model_path)
+            else:
+                torch.save(self.model.state_dict(), model_path)
 
     def save_metrics(self):
         if self.metrics is not None:
-            torch.save(
-                self.metrics,
-                os.path.join(
-                    self.save_dir,
-                    "metrics.pth",
-                ),
-            )
+            metrics_path = os.path.join(self.save_dir, "metrics.pth")
+            if self.config["tune"]:
+                with FileLock(metrics_path + ".lock"):
+                    torch.save(self.metrics, metrics_path)
+            else:
+                torch.save(self.metrics, metrics_path)
 
     # def compute_loss(self, client_data, train=True):
     #     return compute_metric(
@@ -150,24 +158,31 @@ class BaseTrainer(pl.LightningModule):
                 enable_model_summary=False,
                 enable_progress_bar=False,
                 strategy=RayStrategy(
-                    num_workers=3, num_cpus_per_worker=1, use_gpu=2
+                    num_workers=3,
+                    num_cpus_per_worker=3,
+                    use_gpu=True,
                 ),
                 log_every_n_steps=1,
                 precision=16,
                 amp_backend="native",
+                limit_train_batches=0,
+                limit_val_batches=0,
             )
         else:
             trainer = pl.Trainer(
                 default_root_dir=self.save_dir,
                 # progress_bar=TQDMProgressBar(refresh_rate=20),
-                devices=1,
+                devices=torch.cuda.device_count(),
                 accelerator="gpu",
                 enable_model_summary=False,
                 enable_progress_bar=False,
                 strategy="ddp_find_unused_parameters_false",
                 log_every_n_steps=1,
                 precision=16,
+                progress_bar_refresh_rate=10,
                 amp_backend="native",
+                limit_train_batches=0,
+                limit_val_batches=0,
             )
         trainer.test(
             self.model,
@@ -213,7 +228,6 @@ class ClientTrainer(BaseTrainer):
                 patience=5,
                 verbose=False,
             )
-
             callbacks = [early_stopping]
             model_checkpoint = ModelCheckpoint(
                 dirpath=self.save_dir,
@@ -224,6 +238,8 @@ class ClientTrainer(BaseTrainer):
             )
             callbacks.append(model_checkpoint)
             logger = CSVLogger(self.save_dir)
+            progress_bar = TQDMProgressBar(refresh_rate=3)
+            callbacks.append(progress_bar)
             enable_progress_bar = True
             # import ipdb
 
@@ -232,14 +248,19 @@ class ClientTrainer(BaseTrainer):
             self.trainer = pl.Trainer(
                 default_root_dir=self.save_dir,
                 strategy=RayStrategy(
-                    num_workers=3, num_cpus_per_worker=1, use_gpu=2
+                    num_workers=3,
+                    num_cpus_per_worker=3,
+                    use_gpu=True,
                 ),
-                val_check_interval=min(
-                    local_iter,
-                    self.config["freq"]["metrics"],
-                    len(client_data.train_dataloader()),
-                )
-                - 1,
+                val_check_interval=max(
+                    min(
+                        local_iter,
+                        self.config["freq"]["metrics"],
+                        len(client_data.train_dataloader()),
+                    )
+                    - 1,
+                    1,
+                ),
                 check_val_every_n_epoch=1,
                 callbacks=callbacks,
                 max_steps=local_iter,
@@ -257,7 +278,7 @@ class ClientTrainer(BaseTrainer):
             self.trainer = pl.Trainer(
                 default_root_dir=self.save_dir,
                 # progress_bar=TQDMProgressBar(refresh_rate=20),
-                devices=1,
+                devices=torch.cuda.device_count(),
                 accelerator="gpu",
                 val_check_interval=max(
                     min(
@@ -391,7 +412,9 @@ class ClusterTrainer(BaseTrainer):
                             max_steps=last_round - first_round,
                             enable_progress_bar=False,
                             strategy=RayStrategy(
-                                num_workers=3, num_cpus_per_worker=1, use_gpu=2
+                                num_workers=3,
+                                num_cpus_per_worker=3,
+                                use_gpu=True,
                             ),
                             log_every_n_steps=1,
                             logger=CSVLogger(self.save_dir),
@@ -406,7 +429,7 @@ class ClusterTrainer(BaseTrainer):
                         trainer = pl.Trainer(
                             # progress=TQDMProgressBar(refresh_rate=20),
                             default_root_dir=self.save_dir,
-                            devices=1,
+                            devices=torch.cuda.device_count(),
                             accelerator="gpu",
                             enable_model_summary=False,
                             max_steps=last_round - first_round,

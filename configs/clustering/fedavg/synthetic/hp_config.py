@@ -21,7 +21,7 @@ def get_hp_config(trial, data_config):
             },
         },
         "freq": {"metrics": 30, "save": 60, "print": 30},
-        "iterations": 300,
+        "iterations": 20,
         "local_iter": local_iter,
         "num_clients_per_round": num_clients_per_round,
         "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},

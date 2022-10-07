@@ -14,13 +14,12 @@ class ClusterFLAlgo(ABC):
         if self.tune:
             assert tune_config is not None, "No hyperparameter config provided"
             self.config = tune_config
-            # print("tune_config:", tune_config)
-            # print("fldataset config", config)
             self.config = config | self.config
 
         else:
             self.config = read_algo_config(config)
         self.config["tune"] = tune
+
     def cluster(self, experiment):
         raise NotImplementedError
 

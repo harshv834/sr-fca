@@ -6,12 +6,17 @@ import pytorch_lightning as pl
 import torch
 import torchvision.transforms as transforms
 from ffcv.fields import IntField, NDArrayField, RGBImageField
-from ffcv.fields.decoders import (IntDecoder, NDArrayDecoder,
-                                  SimpleRGBImageDecoder)
+from ffcv.fields.decoders import IntDecoder, NDArrayDecoder, SimpleRGBImageDecoder
 from ffcv.loader import Loader, OrderOption
 from ffcv.pipeline.operation import Operation
-from ffcv.transforms import (Convert, Cutout, RandomHorizontalFlip,
-                             RandomTranslate, ToTensor, ToTorchImage)
+from ffcv.transforms import (
+    Convert,
+    Cutout,
+    RandomHorizontalFlip,
+    RandomTranslate,
+    ToTensor,
+    ToTorchImage,
+)
 from ffcv.transforms.common import Squeeze
 from ffcv.writer import DatasetWriter
 from torch.utils.data import DataLoader, Dataset
@@ -105,17 +110,17 @@ class Client(pl.LightningDataModule):
                 self.train_writeset,
                 batch_size=self.config["batch"]["train"],
                 shuffle=True,
-                num_workers=0,
+                num_workers=1,
             )
         else:
             return Loader(
                 self.train_beton_path,
                 batch_size=self.config["batch"]["train"],
-                num_workers=0,
+                num_workers=1,
                 order=OrderOption.SEQUENTIAL,
                 drop_last=True,
                 pipelines=self.train_loader_pipeline,
-                # distributed=True,
+                distributed=True,
                 os_cache=True,
             )
 
@@ -125,18 +130,18 @@ class Client(pl.LightningDataModule):
                 self.test_writeset,
                 batch_size=self.config["batch"]["test"],
                 shuffle=False,
-                num_workers=0,
+                num_workers=1,
             )
         else:
             return Loader(
                 self.test_beton_path,
                 batch_size=self.config["batch"]["test"],
-                num_workers=0,
+                num_workers=1,
                 order=OrderOption.SEQUENTIAL,
                 drop_last=False,
                 os_cache=True,
                 pipelines=self.test_loader_pipeline,
-                # distributed=True,
+                distributed=True,
             )
 
     # TODO : Make this a loader
@@ -146,18 +151,18 @@ class Client(pl.LightningDataModule):
                 self.val_writeset,
                 batch_size=self.config["batch"]["test"],
                 shuffle=False,
-                num_workers=0,
+                num_workers=1,
             )
         else:
             return Loader(
                 self.val_beton_path,
                 batch_size=self.config["batch"]["test"],
-                num_workers=0,
+                num_workers=1,
                 order=OrderOption.SEQUENTIAL,
                 drop_last=False,
                 os_cache=True,
                 pipelines=self.test_loader_pipeline,
-                # distributed=True,
+                distributed=True,
             )
 
         # TODO : Add tune behaviour compatibility

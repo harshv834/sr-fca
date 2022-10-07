@@ -4,21 +4,26 @@ from time import time
 
 import numpy as np
 
-# tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
+from ray_lightning.tune import get_tune_resources
 import pytorch_lightning as pl
 import torch
 import yaml
-from ray import air, tune
+import ray
+from ray import tune
+from ray.air.config import RunConfig
 from ray.air import session
-from ray.tune import with_parameters, with_resources
+from ray.tune import with_parameters, with_resources, TuneConfig, Tuner
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search import ConcurrencyLimiter
 from ray.tune.search.optuna import OptunaSearch
 from tqdm import tqdm
+from functools import partialmethod
 
 from src.clustering import CLUSTERING_DICT
 from src.datasets.base import FLDataset
 from src.utils import args_getter, check_nan, get_search_space, tune_config_update
+
+tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
 import warnings
@@ -57,30 +62,42 @@ if args["dataset"] == "synthetic":
 else:
     mode = "max"
 best_hp_path, search_space_func = get_search_space(fldataset.config)
-searcher = OptunaSearch(space=search_space_func, metric="test_metric", mode=mode)
-algo = ConcurrencyLimiter(searcher, max_concurrent=4)
-tuner = tune.Tuner(
-    with_resources(
-        with_parameters(objective, fldataset=fldataset),
-        tune.PlacementGroupFactory([{"cpu": 8, "gpu": 2}]),
-    ),
-    tune_config=tune.TuneConfig(
-        search_alg=algo,
-        num_samples=1,
-    ),
+searcher = OptunaSearch(
+    space=search_space_func,
+    metric="test_metric",
+    mode=mode,
+    seed=fldataset.config["seed"],
 )
-results = tuner.fit()
+algo = ConcurrencyLimiter(searcher, max_concurrent=4)
+ray.init(object_store_memory=78643200)
+analysis = tune.run(
+    with_parameters(objective, fldataset=fldataset),
+    search_alg=algo,
+    num_samples=1,
+    name=fldataset.config["dataset"]["name"]
+    + "_"
+    + fldataset.config["clustering"]
+    + "_"
+    + str(fldataset.config["seed"]),
+    metric="test_metric",
+    mode=mode,
+    resources_per_trial=get_tune_resources(
+        num_cpus_per_worker=3, num_workers=3, use_gpu=True
+    ),
+    verbose=False,
+)
 # ## Check_nan here with config
 try:
-    best_result = results.get_best_result(metric="test_metric", mode=mode)
-    best_result_config = results.get_best_result().config
+    best_result = analysis.best_result
+    print("Best Result", best_result)
+    best_result_config = analysis.get_best_config(metric="test_metric", mode=mode)
 
     best_result_config = tune_config_update(best_result_config)
 
-    print("Best_config", best_result.config)
+    print("Best_config", best_result_config)
 
     with open(best_hp_path, "w") as f:
-        yaml.dump(results.get_best_result().config, f, default_flow_style=False)
+        yaml.dump(best_result_config, f, default_flow_style=False)
     ## Save metrics for best config as well
 except RuntimeError:
     print("All trials ended with test metric NaN")

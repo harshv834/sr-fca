@@ -1,13 +1,44 @@
-model: 
-  name: one_layer_lin
-rounds : 2
-local_iter: 2
+batch:
+  test: 512
+  train: 50
+clustering: fedavg
+dataset:
+  dimension: 1000
+  name: synthetic
+  noise_scale: 0.001
+  num_clusters: 2
+  num_samples:
+    test: 100
+    train: 100
+  scale: 1
+dist_metric: euclidean
 freq:
-  metrics: 5
-  save: 150
-  print: 100
-num_clients_per_round: 3
+  metrics: 30
+  print: 30
+  save: 60
+iterations: 20
+local_iter: 1
+model:
+  name: one_layer_lin
+  params:
+    dimension: 1000
+    scale: 1
+num_clients: 50
+num_clients_per_round: 2
 optimizer:
   name: sgd
   params:
-    lr: 0.1
+    lr: 0.0018520770828517835
+    momentum: 0.1278999769090847
+optimizer_name: sgd
+optimizer_params_lr: 0.0018520770828517835
+optimizer_params_momentum: 0.1278999769090847
+path:
+  data: experiments/synthetic/seed_9/data
+  results: experiments/synthetic/seed_9/results/fedavg
+rounds: 20
+seed: 9
+time:
+  t0: 1665122445.1921668
+  tdataset: 1665122445.5171223
+  tnew: 1665122445.5171223
