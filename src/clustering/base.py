@@ -20,7 +20,7 @@ class ClusterFLAlgo(ABC):
             self.config = read_algo_config(config)
         self.config["tune"] = tune
 
-    def cluster(self, experiment):
+    def cluster(self, experiment, trainer):
         raise NotImplementedError
 
     def empty_cluster_check(self, info):

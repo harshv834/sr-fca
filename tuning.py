@@ -78,7 +78,22 @@ with open(os.devnull, "w") as devnull:
             with torch.warnings.catch_warnings(record=True) as torch_w:
                 torch.warnings.simplefilter("ignore")
                 with pl.utilities.warnings.warnings.catch_warnings(record=True) as pl_w:
-
+                    trainer = pl.Trainer(
+                        default_root_dir=fldataset.config["path"]["results"],
+                        # progress_bar=TQDMProgressBar(refresh_rate=20),
+                        enable_model_summary=False,
+                        enable_progress_bar=False,
+                        strategy=RayStrategy(
+                            num_workers=3,
+                            num_cpus_per_worker=3,
+                            use_gpu=True,
+                        ),
+                        log_every_n_steps=1,
+                        precision=16,
+                        amp_backend="native",
+                        limit_train_batches=0,
+                        limit_val_batches=0,
+                    )
                     ray.init(
                         address="local",
                         configure_logging=True,

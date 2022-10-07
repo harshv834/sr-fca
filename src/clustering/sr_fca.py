@@ -9,8 +9,13 @@ import torch
 
 from src.clustering.base import TRIAL_MAP, ClusterFLAlgo
 from src.trainers import ClientTrainer, ClusterTrainer
-from src.utils import (avg_metrics, check_nan, compute_dist,
-                       correlation_clustering, tune_config_update)
+from src.utils import (
+    avg_metrics,
+    check_nan,
+    compute_dist,
+    correlation_clustering,
+    tune_config_update,
+)
 
 
 class SRFCA(ClusterFLAlgo):
@@ -23,9 +28,9 @@ class SRFCA(ClusterFLAlgo):
             for i in range(self.config["num_clients"])
         }
 
-    def cluster(self, experiment):
+    def cluster(self, experiment, trainer):
         self.config["time"]["tcluster"] = time()
-        self.init(experiment)
+        self.init(experiment, trainer)
         self.config["time"]["tnew"] = time()
         print(
             "Time taken by INIT step : {} s".format(
@@ -55,7 +60,7 @@ class SRFCA(ClusterFLAlgo):
 
         return self.refine_metrics[self.config["num_refine_steps"] - 1]
 
-    def init(self, experiment):
+    def init(self, experiment, trainer):
         client_dict = experiment.client_dict
         init_path = os.path.join(self.config["path"]["results"], "init")
         init_metrics = []
@@ -63,7 +68,9 @@ class SRFCA(ClusterFLAlgo):
         for i in self.client_trainers.keys():
             client_save_dir = os.path.join(init_path, "client_{}".format(i))
             self.client_trainers[i].set_save_dir(client_save_dir)
+            self.format_trainers
             client_metrics = self.client_trainers[i].train(
+                trainer=trainer
                 client_data=client_dict[i],
                 local_iter=self.config["init"]["iterations"],
             )
@@ -135,7 +142,7 @@ class SRFCA(ClusterFLAlgo):
                 [client_dict[key] for key in self.cluster_map[cluster_id]],
                 [client_dict[client_id]],
                 self.config["dist_metric"],
-                self.config["tune"]
+                self.config["tune"],
             )
             if client_id not in cluster_client_product.keys():
                 cluster_client_product[client_id] = {cluster_id: dist}
@@ -182,7 +189,7 @@ class SRFCA(ClusterFLAlgo):
                 [client_dict[key] for key in clients[i]],
                 [client_dict[key] for key in clients[j]],
                 self.config["dist_metric"],
-                self.config["tune"]
+                self.config["tune"],
             )
             if dist <= self.config["dist_threshold"]:
                 graph.add_edge(i, j)
