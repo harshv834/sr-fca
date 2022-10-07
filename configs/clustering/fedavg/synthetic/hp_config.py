@@ -26,6 +26,10 @@ def get_hp_config(trial, data_config):
         "num_clients_per_round": num_clients_per_round,
         "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},
     }
+    print(type(config))
     config = data_config | config
+    import ipdb
+
+    ipdb.set_trace()
     print(config)
     return config

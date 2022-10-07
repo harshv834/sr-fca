@@ -143,32 +143,32 @@ class BaseTrainer(pl.LightningModule):
                 param.data = wts[name]
 
     def compute_metrics(self, client_data, train=False):
-        if self.config["tune"]:
-            trainer = pl.Trainer(
-                default_root_dir=self.save_dir,
-                # progress_bar=TQDMProgressBar(refresh_rate=20),
-                enable_model_summary=False,
-                enable_progress_bar=False,
-                strategy=RayStrategy(
-                    num_workers=3, num_cpus_per_worker=1, use_gpu=2
-                ),
-                log_every_n_steps=1,
-                precision=16,
-                amp_backend="native",
-            )
-        else:
-            trainer = pl.Trainer(
-                default_root_dir=self.save_dir,
-                # progress_bar=TQDMProgressBar(refresh_rate=20),
-                devices=1,
-                accelerator="gpu",
-                enable_model_summary=False,
-                enable_progress_bar=False,
-                strategy="ddp_find_unused_parameters_false",
-                log_every_n_steps=1,
-                precision=16,
-                amp_backend="native",
-            )
+        # if self.config["tune"]:
+        #     trainer = pl.Trainer(
+        #         default_root_dir=self.save_dir,
+        #         # progress_bar=TQDMProgressBar(refresh_rate=20),
+        #         enable_model_summary=False,
+        #         enable_progress_bar=False,
+        #         strategy=RayStrategy(
+        #             num_workers=3, num_cpus_per_worker=1, use_gpu=2
+        #         ),
+        #         log_every_n_steps=1,
+        #         precision=16,
+        #         amp_backend="native",
+        #     )
+        # else:
+        trainer = pl.Trainer(
+            default_root_dir=self.save_dir,
+            # progress_bar=TQDMProgressBar(refresh_rate=20),
+            devices=torch.cuda.device_count(),
+            accelerator="gpu",
+            enable_model_summary=False,
+            enable_progress_bar=False,
+            strategy="ddp_find_unused_parameters_false",
+            log_every_n_steps=1,
+            precision=16,
+            amp_backend="native",
+        )
         trainer.test(
             self.model,
             client_data.train_dataloader() if train else client_data.test_dataloader(),
@@ -223,64 +223,65 @@ class ClientTrainer(BaseTrainer):
                 every_n_train_steps=self.config["freq"]["save"],
             )
             callbacks.append(model_checkpoint)
-            logger = CSVLogger(self.save_dir)
+            if not self.config["tune"]:
+                logger = CSVLogger(self.save_dir)
             enable_progress_bar = True
             # import ipdb
 
             # ipdb.set_trace()
-        if self.config["tune"]:
-            self.trainer = pl.Trainer(
-                default_root_dir=self.save_dir,
-                strategy=RayStrategy(
-                    num_workers=3, num_cpus_per_worker=1, use_gpu=2
-                ),
-                val_check_interval=min(
+        # if self.config["tune"]:
+        #     self.trainer = pl.Trainer(
+        #         default_root_dir=self.save_dir,
+        #         strategy=RayStrategy(
+        #             num_workers=3, num_cpus_per_worker=1, use_gpu=2
+        #         ),
+        #         val_check_interval=min(
+        #             local_iter,
+        #             self.config["freq"]["metrics"],
+        #             len(client_data.train_dataloader()),
+        #         )
+        #         - 1,
+        #         check_val_every_n_epoch=1,
+        #         callbacks=callbacks,
+        #         max_steps=local_iter,
+        #         enable_model_summary=False,
+        #         enable_progress_bar=enable_progress_bar,
+        #         # strategy="ddp_find_unused_parameters_false",
+        #         logger=logger,
+        #         log_every_n_steps=max(
+        #             min(local_iter, self.config["freq"]["metrics"]) - 1, 1
+        #         ),
+        #         precision=16,
+        #         amp_backend="native",
+        #     )
+        # else:
+        self.trainer = pl.Trainer(
+            default_root_dir=self.save_dir,
+            # progress_bar=TQDMProgressBar(refresh_rate=20),
+            devices=torch.cuda.device_count(),
+            accelerator="gpu",
+            val_check_interval=max(
+                min(
                     local_iter,
                     self.config["freq"]["metrics"],
                     len(client_data.train_dataloader()),
                 )
                 - 1,
-                check_val_every_n_epoch=1,
-                callbacks=callbacks,
-                max_steps=local_iter,
-                enable_model_summary=False,
-                enable_progress_bar=enable_progress_bar,
-                # strategy="ddp_find_unused_parameters_false",
-                logger=logger,
-                log_every_n_steps=max(
-                    min(local_iter, self.config["freq"]["metrics"]) - 1, 1
-                ),
-                precision=16,
-                amp_backend="native",
-            )
-        else:
-            self.trainer = pl.Trainer(
-                default_root_dir=self.save_dir,
-                # progress_bar=TQDMProgressBar(refresh_rate=20),
-                devices=1,
-                accelerator="gpu",
-                val_check_interval=max(
-                    min(
-                        local_iter,
-                        self.config["freq"]["metrics"],
-                        len(client_data.train_dataloader()),
-                    )
-                    - 1,
-                    1,
-                ),
-                check_val_every_n_epoch=1,
-                callbacks=callbacks,
-                max_steps=local_iter,
-                enable_model_summary=False,
-                enable_progress_bar=enable_progress_bar,
-                strategy="ddp_find_unused_parameters_false",
-                logger=logger,
-                log_every_n_steps=max(
-                    min(local_iter, self.config["freq"]["metrics"]) - 1, 1
-                ),
-                precision=16,
-                amp_backend="native",
-            )
+                1,
+            ),
+            check_val_every_n_epoch=1,
+            callbacks=callbacks,
+            max_steps=local_iter,
+            enable_model_summary=False,
+            enable_progress_bar=enable_progress_bar,
+            strategy="ddp_find_unused_parameters_false",
+            logger=logger,
+            log_every_n_steps=max(
+                min(local_iter, self.config["freq"]["metrics"]) - 1, 1
+            ),
+            precision=16,
+            amp_backend="native",
+        )
         self.trainer.fit(
             self.model,
             client_data,
@@ -384,42 +385,42 @@ class ClusterTrainer(BaseTrainer):
             ] == 0 or round_id == last_round - 1:
                 metrics_list = []
                 for client_id in client_idx:
-                    if self.config["tune"]:
-                        trainer = pl.Trainer(
-                            default_root_dir=self.save_dir,
-                            enable_model_summary=False,
-                            max_steps=last_round - first_round,
-                            enable_progress_bar=False,
-                            strategy=RayStrategy(
-                                num_workers=3, num_cpus_per_worker=1, use_gpu=2
-                            ),
-                            log_every_n_steps=1,
-                            logger=CSVLogger(self.save_dir),
-                            precision=16,
-                            enable_checkpointing=False,
-                            amp_backend="native",
-                            limit_train_batches=0,
-                            limit_val_batches=0,
-                        )
+                    # if self.config["tune"]:
+                    #     trainer = pl.Trainer(
+                    #         default_root_dir=self.save_dir,
+                    #         enable_model_summary=False,
+                    #         max_steps=last_round - first_round,
+                    #         enable_progress_bar=False,
+                    #         strategy=RayStrategy(
+                    #             num_workers=3, num_cpus_per_worker=1, use_gpu=2
+                    #         ),
+                    #         log_every_n_steps=1,
+                    #         logger=CSVLogger(self.save_dir),
+                    #         precision=16,
+                    #         enable_checkpointing=False,
+                    #         amp_backend="native",
+                    #         limit_train_batches=0,
+                    #         limit_val_batches=0,
+                    #     )
 
-                    else:
-                        trainer = pl.Trainer(
-                            # progress=TQDMProgressBar(refresh_rate=20),
-                            default_root_dir=self.save_dir,
-                            devices=1,
-                            accelerator="gpu",
-                            enable_model_summary=False,
-                            max_steps=last_round - first_round,
-                            enable_progress_bar=False,
-                            strategy="ddp_find_unused_parameters_false",
-                            log_every_n_steps=1,
-                            logger=CSVLogger(self.save_dir),
-                            precision=16,
-                            enable_checkpointing=False,
-                            amp_backend="native",
-                            limit_train_batches=0,
-                            limit_val_batches=0,
-                        )
+                    # else:
+                    trainer = pl.Trainer(
+                        # progress=TQDMProgressBar(refresh_rate=20),
+                        default_root_dir=self.save_dir,
+                        devices=torch.cuda.device_count(),
+                        accelerator="gpu",
+                        enable_model_summary=False,
+                        max_steps=last_round - first_round,
+                        enable_progress_bar=False,
+                        strategy="ddp_find_unused_parameters_false",
+                        log_every_n_steps=1,
+                        logger=CSVLogger(self.save_dir),
+                        precision=16,
+                        enable_checkpointing=False,
+                        amp_backend="native",
+                        limit_train_batches=0,
+                        limit_val_batches=0,
+                    )
                     trainer.test(
                         self.model,
                         client_dict[client_id],

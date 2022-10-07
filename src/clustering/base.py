@@ -5,7 +5,8 @@ from src.utils import read_algo_config
 
 TRIAL_MAP = {0: [1, 2], 1: [0, 4]}
 
-
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning) 
 class ClusterFLAlgo(ABC):
     def __init__(self, config, tune=False, tune_config=None):
         super(ClusterFLAlgo, self).__init__()
@@ -16,11 +17,11 @@ class ClusterFLAlgo(ABC):
             self.config = tune_config
             # print("tune_config:", tune_config)
             # print("fldataset config", config)
-            self.config = config | self.config
 
         else:
             self.config = read_algo_config(config)
         self.config["tune"] = tune
+
     def cluster(self, experiment):
         raise NotImplementedError
 

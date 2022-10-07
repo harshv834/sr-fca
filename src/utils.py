@@ -247,28 +247,28 @@ def compute_dist(model_1, model_2, client_1, client_2, dist_metric, tune=False):
 
         model_1_client_2 = 0.0
         for client in client_2:
-            if tune:
-                trainer = pl.Trainer(
-                    enable_model_summary=False,
-                    enable_progress_bar=False,
-                    strategy=RayStrategy(num_workers=3, num_cpus_per_worker=1, use_gpu=2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   ,
-                    precision=16,
-                    amp_backend="native",
-                    log_every_n_steps=1,
-                )
+            # if tune:
+            #     trainer = pl.Trainer(
+            #         enable_model_summary=False,
+            #         enable_progress_bar=False,
+            #         strategy=RayStrategy(num_workers=3, num_cpus_per_worker=1, use_gpu=2)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   ,
+            #         precision=16,
+            #         amp_backend="native",
+            #         log_every_n_steps=1,
+            #     )
 
                 
-            else:
-                trainer = pl.Trainer(
-                    devices=1,
-                    accelerator="gpu",
-                    enable_model_summary=False,
-                    enable_progress_bar=False,
-                    strategy="ddp_find_unused_parameters_false",
-                    precision=16,
-                    amp_backend="native",
-                    log_every_n_steps=1,
-                )
+            # else:
+            trainer = pl.Trainer(
+                devices=torch.cuda.device_count(),
+                accelerator="gpu",
+                enable_model_summary=False,
+                enable_progress_bar=False,
+                strategy="ddp_find_unused_parameters_false",
+                precision=16,
+                amp_backend="native",
+                log_every_n_steps=1,
+            )
             trainer.test(
                 model_1.model, client.train_dataloader(), verbose=False, ckpt_path=None
             )
@@ -277,26 +277,26 @@ def compute_dist(model_1, model_2, client_1, client_2, dist_metric, tune=False):
         model_1_client_2 = model_1_client_2 / len(client_2)
         model_2_client_1 = 0.0
         for client in client_1:
-            if tune:
-                trainer = pl.Trainer(
-                    enable_model_summary=False,
-                    enable_progress_bar=False,
-                    strategy=RayStrategy(num_workers=3, num_cpus_per_worker=1, use_gpu=2),
-                    precision=16,
-                    amp_backend="native",
-                    log_every_n_steps=1,
-                )
-            else:
-                trainer = pl.Trainer(
-                    devices=1,
-                    accelerator="gpu",
-                    enable_model_summary=False,
-                    enable_progress_bar=False,
-                    strategy="ddp_find_unused_parameters_false",
-                    precision=16,
-                    amp_backend="native",
-                    log_every_n_steps=1,
-                )
+            # if tune:
+            #     trainer = pl.Trainer(
+            #         enable_model_summary=False,
+            #         enable_progress_bar=False,
+            #         strategy=RayStrategy(num_workers=3, num_cpus_per_worker=1, use_gpu=2),
+            #         precision=16,
+            #         amp_backend="native",
+            #         log_every_n_steps=1,
+            #     )
+            # else:
+            trainer = pl.Trainer(
+                devices=torch.cuda.device_count(),
+                accelerator="gpu",
+                enable_model_summary=False,
+                enable_progress_bar=False,
+                strategy="ddp_find_unused_parameters_false",
+                precision=16,
+                amp_backend="native",
+                log_every_n_steps=1,
+            )
             trainer.test(
                 model_2.model, client.train_dataloader(), verbose=False, ckpt_path=None
             )
@@ -391,7 +391,7 @@ def check_nan(metrics):
     return False
 
 
-def get_search_space(config):
+def get_search_space(trial, config):
     algo_config_path = os.path.join(
         "configs",
         "clustering",
@@ -403,8 +403,7 @@ def get_search_space(config):
     config_file = importlib.util.module_from_spec(spec)
     sys.modules["module.name"] = config_file
     spec.loader.exec_module(config_file)
-    best_hp_path = os.path.join(algo_config_path, "best_hp.yaml")
-    return best_hp_path, lambda trial: config_file.get_hp_config(trial, config)
+    return config_file.get_hp_config(trial, config)
 
 
 def wt_dict_diff(wt_1, wt_2):
