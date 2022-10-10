@@ -5,7 +5,7 @@ dataset:
   input_size : 784
   num_classes : 10
   hidden_size : 200
-path: experiments/rot_mnist/
+path: /base_vol/sr_fca_main/experiments/rot_mnist/
 batch:
   train: 50
   test: 512

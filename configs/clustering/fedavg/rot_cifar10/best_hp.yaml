@@ -11,3 +11,4 @@ optimizer:
   params:
     lr: 0.1
 num_clients_per_round : 3
+label_smoothing: 0.1

@@ -1,10 +1,7 @@
 def get_hp_config(trial, data_config):
-    # trial.suggest_categorical("model", [{"name": "simplelin"}])
-    dist_threshold = trial.suggest_loguniform("dist_threshold", 5, 50)
+    dist_threshold = trial.suggest_loguniform("dist_fraction", 0.1, 0.8)
     size_threshold = trial.suggest_int("size_threshold", 1, 10)
-    # trial.suggest_categorical("freq",[{"metrics": 5, "save": 150, "print": 100}])
     beta = trial.suggest_uniform("beta", 0.1, 0.4)
-    # trial.suggest_categorical("init", [{"iterations": 300}])
     num_refine_steps = trial.suggest_int("num_refine_steps", 1, 4)
     refine_local_iter = trial.suggest_int("refine_local_iter", 1, 5)
     optimizer_name = trial.suggest_categorical("optimizer_name", ["sgd", "adam"])
@@ -25,16 +22,16 @@ def get_hp_config(trial, data_config):
                 "scale": data_config["dataset"]["scale"],
             },
         },
-        "dist_threshold": dist_threshold,
+        "dist_fraction": dist_threshold,
         "size_threshold": size_threshold,
         "freq": {"metrics": 5, "save": 150, "print": 100},
         "beta": beta,
-        "init": {"iterations": 20},
+        "init": {"iterations": 280},
         "refine": {"local_iter": refine_local_iter},
         "num_refine_steps": num_refine_steps,
         "num_clients_per_round": num_clients_per_round,
         "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},
-        "dist_metric" : "euclidean"
+        "dist_metric": "euclidean",
     }
     config = data_config | config
 

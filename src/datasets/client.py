@@ -74,12 +74,9 @@ class Client:
         self.client_id = client_id
         train_writeset = ClientWriteDataset(config, train_data)
         test_writeset = ClientWriteDataset(config, test_data)
-
-        if config["dataset"]["name"] not in ["synthetic", "shakespeare"]:
+        if config["dataset"]["name"] == "rot_cifar10":
 
             temp_path = os.path.join(config["path"]["data"], "tmp_storage")
-            if os.path.exists(temp_path):
-                rmtree(temp_path)
             os.makedirs(temp_path, exist_ok=True)
             train_beton_path = os.path.join(
                 temp_path, "train_client_{}.beton".format(client_id)
@@ -105,7 +102,7 @@ class Client:
                 train_beton_path,
                 batch_size=config["batch"]["train"],
                 num_workers=1,
-                order=OrderOption.QUASI_RANDOM,
+                order=OrderOption.SEQUENTIAL,
                 drop_last=False,
                 pipelines=train_loader_pipeline,
             )
@@ -113,7 +110,7 @@ class Client:
                 test_beton_path,
                 batch_size=config["batch"]["test"],
                 num_workers=1,
-                order=OrderOption.QUASI_RANDOM,
+                order=OrderOption.SEQUENTIAL,
                 drop_last=False,
                 pipelines=test_loader_pipeline,
             )
@@ -157,28 +154,29 @@ class Client:
 
 
 def get_pipelines(config, i):
-    # if config["dataset"]["name"].endswith("mnist"):
-    #     writer_pipeline = {
-    #         "X": NDArrayField(
-    #             shape=(config["dataset"]["dimension"],), dtype=np.dtype("float32")
-    #         ),
-    #         "y": NDArrayField(shape=(1,), dtype=np.dtype("float32")),
-    #     }
-    #     train_loader_pipeline = {
-    #         "X": [
-    #             NDArrayDecoder(),
-    #             ToTensor(),
-    #             ToDevice(torch.device(get_device(config, i)), non_blocking=True),
-    #         ],
-    #         "y": [
-    #             NDArrayDecoder(),
-    #             ToTensor(),
-    #             Squeeze(),
-    #             ToDevice(torch.device(get_device(config, i)), non_blocking=True),
-    #         ],
-    #     }
-    #     test_loader_pipeline = train_loader_pipeline
-    if config["dataset"]["name"].endswith("mnist"):
+    if config["dataset"]["name"] == "synthetic":
+        writer_pipeline = {
+            "X": NDArrayField(
+                shape=(config["dataset"]["dimension"],), dtype=np.dtype("float32")
+            ),
+            "y": IntField(),
+        }
+        train_loader_pipeline = {
+            "X": [
+                NDArrayDecoder(),
+                ToTensor(),
+                ToDevice(get_device(config, i), non_blocking=True),
+            ],
+            "y": [
+                IntDecoder(),
+                ToTensor(),
+                Squeeze(),
+                ToDevice(get_device(config, i), non_blocking=True),
+                Convert(torch.float16),
+            ],
+        }
+        test_loader_pipeline = train_loader_pipeline
+    elif config["dataset"]["name"].endswith("mnist"):
         writer_pipeline = {
             "X": NDArrayField(
                 shape=(config["dataset"]["input_size"],), dtype=np.dtype("float32")
@@ -189,14 +187,15 @@ def get_pipelines(config, i):
             "X": [
                 NDArrayDecoder(),
                 ToTensor(),
-                ToDevice(torch.device(get_device(config, i)), non_blocking=True),
+                ToDevice(get_device(config, i), non_blocking=True),
                 Convert(torch.float16),
             ],
             "y": [
                 IntDecoder(),
                 ToTensor(),
                 Squeeze(),
-                ToDevice(torch.device(get_device(config, i)), non_blocking=True),
+                ToDevice(get_device(config, i), non_blocking=True),
+                Convert(torch.float16),
             ],
         }
         test_loader_pipeline = train_loader_pipeline
@@ -205,7 +204,7 @@ def get_pipelines(config, i):
         label_pipeline: List[Operation] = [
             IntDecoder(),
             ToTensor(),
-            ToDevice("cuda:0"),
+            ToDevice(get_device(config, i)),
             Squeeze(),
         ]
         train_image_pipeline: List[Operation] = [
@@ -214,7 +213,7 @@ def get_pipelines(config, i):
             RandomTranslate(padding=2),
             Cutout(8, tuple(map(int, CIFAR_MEAN))),
             ToTensor(),
-            ToDevice("cuda:0", non_blocking=True),
+            ToDevice(get_device(config, i), non_blocking=True),
             ToTorchImage(),
             Convert(torch.float16),
             transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
@@ -223,7 +222,7 @@ def get_pipelines(config, i):
         test_image_pipeline: List[Operation] = [
             SimpleRGBImageDecoder(),
             ToTensor(),
-            ToDevice("cuda:0", non_blocking=True),
+            ToDevice(get_device(config, i), non_blocking=True),
             ToTorchImage(),
             Convert(torch.float16),
             transforms.Normalize(CIFAR_MEAN, CIFAR_STD),

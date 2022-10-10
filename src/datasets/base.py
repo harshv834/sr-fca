@@ -6,7 +6,7 @@ from src.datasets.shakespeare import get_shakespeare
 from src.datasets.simulated import load_simulated_dataset
 from src.datasets.synthetic import generate_synthetic_data
 from src.utils import read_data_config, set_seeds
-
+from tqdm import tqdm
 
 class FLDataset:
     def __init__(self, config, name=None, client_dict=None, tune=False):
@@ -35,7 +35,7 @@ class FLDataset:
         )
 
         self.client_dict = {}
-        for i in range(len(train_chunks)):
+        for i in tqdm(range(len(train_chunks))):
 
             self.client_dict[i] = Client(
                 config=self.config,

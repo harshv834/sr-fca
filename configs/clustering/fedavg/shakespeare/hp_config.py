@@ -8,31 +8,42 @@ from ray import tune
 #             "model": {"name": "simplelin"},
 #         }
 
+model: 
+  name: stacked_lstm
+  params:
+    seq_len : 80
+    emb_dim: 8
+    n_hidden: 100
+    num_classes : 80
+    n_layers: 2
+freq:
+  metrics: 5
+  save: 150
+  print: 100
+num_clients_per_round: 3
+local_iter: 5
+rounds: 2
+optimizer:
+  name: sgd
+  params:
+    lr: 0.003
+    momentum: 0.9
 
 def get_hp_config(trial, data_config):
-    # trial.suggest_categorical("model", [{"name": "simplelin"}])
-    dist_threshold = (trial.suggest_loguniform("dist_threshold", 10, 100),)
-    size_threshold = (trial.suggest_int("size_threshold", 1, 10),)
-    # trial.suggest_categorical("freq",[{"metrics": 5, "save": 150, "print": 100}])
-    beta = trial.suggest_uniform("beta", 0.1, 0.4)
-    # trial.suggest_categorical("init", [{"iterations": 300}])
-    num_refine_steps = trial.suggest_int("num_refine_steps", 1, 4)
-    refine_local_iter = trial.suggest_int("refine_local_iter", 1, 5)
+    local_iter = trial.suggest_int("local_iter", 1, 10)
     optimizer_name = trial.suggest_categorical("optimizer_name", ["sgd", "adam"])
     if optimizer_name == "sgd":
-        lr = trial.suggest_loguniform("optimizer_params_lr", 1e-3, 1e-1)
-        optimizer_param_dict = {"lr": lr}
+        lr = trial.suggest_loguniform("optimizer_params_lr", 5e-4, 1e-2)
+        optimizer_param_dict = {"lr": lr, "momentum": momentum}
     else:
         lr = trial.suggest_loguniform("optimizer_params_lr", 1e-4, 1e-2)
-        momentum = trial.suggest_uniform("optimizer_params_momentum", 0.1, 0.9)
-        optimizer_param_dict = {"lr": lr, "betas": (momentum, 0.999)}
+        optimizer_param_dict = {"lr": lr}
 
     config = {
         "model": {
-            "name": "simplelin",
+            "name": "stacked_lstm",
             "params": {
-                "dimension": data_config["dataset"]["dimension"],
-                "scale": data_config["dataset"]["scale"],
+                "seq_len" : data_config["seq_len"]
             },
         },
         "dist_threshold": dist_threshold,

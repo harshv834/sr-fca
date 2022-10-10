@@ -12,6 +12,7 @@ from src.trainers import ClientTrainer, ClusterTrainer
 from src.utils import avg_metrics, check_nan, compute_dist, correlation_clustering
 from tqdm import tqdm
 
+
 class SRFCA(ClusterFLAlgo):
     def __init__(self, config, tune=False, tune_config=None):
         super(SRFCA, self).__init__(config, tune, tune_config)
@@ -177,7 +178,7 @@ class SRFCA(ClusterFLAlgo):
         keys = list(clients.keys())
         graph = nx.Graph()
         graph.add_nodes_from(keys)
-
+        dist_dict = {}
         for i, j in list(itertools.combinations(keys, 2)):
             dist = compute_dist(
                 trainers[i],
@@ -186,6 +187,13 @@ class SRFCA(ClusterFLAlgo):
                 [client_dict[key] for key in clients[j]],
                 self.config["dist_metric"],
             )
+            dist_dict[(i, j)] = dist
+
+        if not merge:
+            self.config["dist_threshold"] = sorted(dist_dict.values())[
+                ceil(self.config["dist_fraction"] * len(dist_dict.keys()))
+            ]
+        for (i, j), dist in dist_dict.items():
             if dist <= self.config["dist_threshold"]:
                 graph.add_edge(i, j)
         graph = graph.to_undirected()

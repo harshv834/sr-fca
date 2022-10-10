@@ -15,9 +15,11 @@ from src.utils import (
     get_device,
     get_lr_scheduler,
     get_optimizer,
+    set_weights,
     wt_dict_diff,
     wt_dict_norm,
 )
+from functools import partialmethod
 
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
@@ -41,7 +43,8 @@ class BaseTrainer(ABC):
                 else 0.0
             )
             self.loss_func = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-
+        if self.config["dataset"]["name"] == "femnist":
+            self.model = set_weights(self.model, self.config["pretrained_path"])
     def train(self):
         raise NotImplementedError
 
@@ -141,7 +144,7 @@ class BaseTrainer(ABC):
         return metrics
 
     def check_model_on_device(self):
-        if next(self.model.parameters()).device == torch.device("cpu"):
+        if next(self.model.parameters()).device != torch.device(self.device):
             self.model.to(self.device)
 
     def get_model_wts(self):
@@ -164,7 +167,7 @@ class ClientTrainer(BaseTrainer):
         self.mode = mode
         if self.mode not in ["fed", "solo"]:
             raise ValueError("Invalid mode for ClientTrainer {}".format(self.mode))
-        self.device = torch.device(get_device(self.config, self.client_id))
+        self.device = get_device(self.config, self.client_id)
 
     def set_save_dir(self, save_dir):
         if self.mode == "solo":
@@ -179,12 +182,25 @@ class ClientTrainer(BaseTrainer):
         optimizer = get_optimizer(self.model.parameters(), self.config)
         scheduler = get_lr_scheduler(self.config, optimizer, local_iter, round)
         scaler = GradScaler()
+        if self.config["dataset"]["name"] == "rot_cifar10":
+            self.model = self.model.to(memory_format=torch.channels_last)
+
         if self.lstm_flag:
             batch_size, hidden = None, None
         # for iteration in range(local_iter):
         for iteration in tqdm(range(local_iter)):
             self.model.train()
-            self.model = self.model.to(memory_format=torch.channels_last).cuda()
+            self.check_model_on_device()
+
+            # if self.config["dataset"]["name"] == "rot_cifar10":
+            #     self.model = self.model.to(memory_format=torch.channels_last).to(
+            #         self.device
+            #     )
+            # else:
+            #     self.model = self.model.to(self.device)
+            # import ipdb
+
+            # ipdb.set_trace()
             optimizer.zero_grad(set_to_none=True)
             (X, Y) = client_data.sample_batch(train=True)
             if self.lstm_flag:
@@ -192,7 +208,7 @@ class ClientTrainer(BaseTrainer):
                     batch_size = X.shape[0]
                     hidden = self.model.zero_state(batch_size)
 
-            if self.config["dataset"]["name"] in ["synthetic", "shakespeare"]:
+            if self.config["dataset"]["name"] != "rot_cifar10":
                 X, Y = X.to(self.device), Y.to(self.device)
                 if self.lstm_flag:
                     hidden = (hidden[0].to(self.device), hidden[1].to(self.device))
@@ -281,7 +297,11 @@ class ClusterTrainer(BaseTrainer):
             first_round = 0
         for round_id in tqdm(range(first_round, last_round + 1)):
             self.model.train()
-            self.model = self.model.to(memory_format=torch.channels_last).cuda()
+            self.check_model_on_device()
+            if self.config["dataset"]["name"] == "rot_cifar10":
+                self.model = self.model.to(memory_format=torch.channels_last).to(
+                    self.device
+                )
             metrics = []
             if self.config["num_clients_per_round"] <= len(client_idx):
                 selected_clients = random.sample(
@@ -336,6 +356,7 @@ class ClusterTrainer(BaseTrainer):
     def compute_metrics(self, client_dict):
         metrics = []
         for i in self.client_idx:
+            self.check_model_on_device()
             metrics.append((1, super().compute_metrics(client_dict[i])))
         return avg_metrics(metrics)
 

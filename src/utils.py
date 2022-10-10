@@ -4,7 +4,7 @@ import json
 import os
 import random
 import sys
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from shutil import rmtree
 
 import numpy as np
@@ -13,6 +13,7 @@ import torch.optim as optim
 import yaml
 from torch.cuda.amp import autocast
 from math import ceil
+
 
 def args_getter():
     parser = argparse.ArgumentParser()
@@ -129,7 +130,6 @@ def compute_metric(
                     total += out.argmax(1).eq(Y).sum().cpu().item()
                 total_num += Y.shape[0]
 
-    model.cpu()
     return total / total_num
 
 
@@ -286,14 +286,20 @@ def set_seeds(seed):
     torch.backends.cudnn.benchmark = False
 
 
+# @ray.remote(num_gpus=1)
 def get_device(config, i, cluster=False):
-
-    if torch.cuda.device_count() >= 1:
+    num_devices = torch.cuda.device_count()
+    if num_devices >= 1:
+        # return "cuda:{}".format(i%num_devices)
+        # if "CUDA_VISIBLE_DEVICES" in os.environ.keys():
+        #     CUDA_VISIBLE_DEVICES = os.environ["CUDA_VISIBLE_DEVICES"]
+        #     return "cuda:" + os.environ["CUDA_VISIBLE_DEVICES"]
+        # else:
         return "cuda:0"
     else:
         raise ValueError(
-            "Current implementation can handle only 1 GPU. {} GPUs were provided".format(
-                torch.cuda.device_count()
+            "Current implementation can handle only >=1 GPU. {} GPUs were provided".format(
+                num_devices
             )
         )
 
@@ -408,15 +414,41 @@ def read_data(train_data_dir, test_data_dir):
 def tune_config_update(config):
     if config["clustering"] == "sr_fca":
         config["refine"]["rounds"] = ceil(
-            int(config["init"]["iterations"])
-            / int(config["refine"]["local_iter"])
+            int(config["init"]["iterations"]) / int(config["refine"]["local_iter"])
         )
 
-    elif config["clustering"] in ["ifca","cfl","fedavg"]:
-        config["rounds"] = ceil(
-            int(config["iterations"]) / int(config["local_iter"])
-        )
+    elif config["clustering"] in ["ifca", "cfl", "fedavg"]:
+        config["rounds"] = ceil(int(config["iterations"]) / int(config["local_iter"]))
     else:
-        raise NotImplementedError("Not implemented clustering {}".format(config["clustering"]))
+        raise NotImplementedError(
+            "Not implemented clustering {}".format(config["clustering"])
+        )
 
     return config
+
+
+def set_weights(model, path):
+    model_wt = torch.load(path)
+    new_wts = OrderedDict()
+    new_wts["fc2.weight"] = torch.Tensor(model_wt["dense_1/kernel"]).t()
+    new_wts["fc2.bias"] = torch.Tensor(model_wt["dense_1/bias"])
+    new_wts["fc1.weight"] = torch.Tensor(model_wt["dense/kernel"]).t()
+    new_wts["fc1.bias"] = torch.Tensor(model_wt["dense/bias"])
+    new_wts["conv1.weight"] = torch.Tensor(model_wt["conv2d/kernel"]).permute(
+        3, 2, 0, 1
+    )
+    new_wts["conv2.weight"] = torch.Tensor(model_wt["conv2d_1/kernel"]).permute(
+        3, 2, 0, 1
+    )
+    new_wts["conv1.bias"] = torch.Tensor(model_wt["conv2d/bias"])
+    new_wts["conv2.bias"] = torch.Tensor(model_wt["conv2d_1/bias"])
+    model.load_state_dict(new_wts)
+    model.conv1.weight.requires_grad = False
+    model.conv2.weight.requires_grad = False
+    model.fc1.weight.requires_grad = True
+    model.fc2.weight.requires_grad = True
+    model.conv1.bias.requires_grad = False
+    model.conv2.bias.requires_grad = False
+    model.fc1.bias.requires_grad = True
+    model.fc2.bias.requires_grad = True
+    return model

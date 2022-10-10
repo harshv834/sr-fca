@@ -67,7 +67,7 @@ def conv_bn(channels_in, channels_out, kernel_size=3, stride=1, padding=1, group
 
 
 class ResNet9(nn.Module):
-    def __init__(self, NUM_CLASSES=10):
+    def __init__(self, num_classes=10):
         super(ResNet9, self).__init__()
         self.model = nn.Sequential(
             conv_bn(3, 64, kernel_size=3, stride=1, padding=1),
@@ -79,7 +79,7 @@ class ResNet9(nn.Module):
             conv_bn(256, 128, kernel_size=3, stride=1, padding=0),
             nn.AdaptiveMaxPool2d((1, 1)),
             Flatten(),
-            nn.Linear(128, NUM_CLASSES, bias=False),
+            nn.Linear(128, num_classes, bias=False),
             Mul(0.2),
         )
 

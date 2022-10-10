@@ -1,6 +1,6 @@
 def get_hp_config(trial, data_config):
-    stop_threshold = trial.suggest_loguniform("stop_threshold", 10, 100)
-    client_threshold = trial.suggest_loguniform("client_threshold", 10, 100)
+    stop_threshold = trial.suggest_loguniform("stop_threshold", 0.1, 100)
+    client_threshold = trial.suggest_loguniform("client_threshold", 0.1, 100)
     gamma_max = trial.suggest_float("gamma_max", 0, 1)
 
     local_iter = trial.suggest_int("local_iter", 1, 5)
@@ -29,8 +29,8 @@ def get_hp_config(trial, data_config):
         "gamma_max": gamma_max,
         "num_clients_per_round": num_clients_per_round,
         "num_clusters": num_clusters,
-        "freq": {"metrics": 5, "save": 150, "print": 100},
-        "iterations": 300,
+        "freq": {"metrics": 20, "save": 150, "print": 100},
+        "iterations": 280,
         "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},
     }
     config = data_config | config

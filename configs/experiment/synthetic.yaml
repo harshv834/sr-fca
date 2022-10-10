@@ -8,7 +8,7 @@ dataset:
     test: 100
   noise_scale: 0.001
   scale: 1
-path: experiments/synthetic/
+path: /base_vol/sr_fca_main/experiments/synthetic/
 batch:
   train: 50
   test: 512

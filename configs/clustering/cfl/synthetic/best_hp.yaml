@@ -1,7 +1,7 @@
 batch:
   test: 512
   train: 50
-client_threshold: 59.7535564682078
+client_threshold: 4.4221798649162825
 clustering: cfl
 dataset:
   dimension: 1000
@@ -12,14 +12,13 @@ dataset:
     test: 100
     train: 100
   scale: 1
-dist_metric: euclidean
 freq:
-  metrics: 5
+  metrics: 20
   print: 100
   save: 150
-gamma_max: 0.0951541034323126
-iterations: 300
-local_iter: 4
+gamma_max: 0.4831359662887267
+iterations: 280
+local_iter: 3
 model:
   name: one_layer_lin
   params:
@@ -27,21 +26,23 @@ model:
     scale: 1
 num_clients: 50
 num_clients_per_round: 8
-num_clusters: 4
+num_clusters: 5
 optimizer:
-  name: adam
+  name: sgd
   params:
-    lr: 0.0009777574947510308
-optimizer_name: adam
-optimizer_params_lr: 0.0009777574947510308
+    lr: 0.007802892291200698
+    momentum: 0.16444238243159445
+optimizer_name: sgd
+optimizer_params_lr: 0.007802892291200698
+optimizer_params_momentum: 0.16444238243159445
 path:
-  data: experiments/synthetic/seed_9/data
-  results: experiments/synthetic/seed_9/results/cfl
-rounds: 75
+  data: /base_vol/sr_fca_main/experiments/synthetic/seed_9/data
+  results: /base_vol/sr_fca_main/experiments/synthetic/seed_9/results/cfl
+rounds: 94
 seed: 9
-stop_threshold: 13.222732673913923
+stop_threshold: 4.348561396247447
 time:
-  t0: 1664954692.672569
-  tcluster: 1664955798.315303
-  tdataset: 1664954693.1332622
-  tnew: 1664954693.1332622
+  t0: 1665351137.4292896
+  tcluster: 1665351148.3045762
+  tdataset: 1665351137.8094316
+  tnew: 1665351137.8094316

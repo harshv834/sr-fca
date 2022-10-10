@@ -1,6 +1,6 @@
 model: 
   name: one_layer_lin
-dist_threshold: 0.5
+dist_fraction: 0.5
 size_threshold: 2
 freq:
   metrics: 5
@@ -10,10 +10,10 @@ num_refine_steps: 2
 beta: 0.2
 num_clients_per_round: 7
 init:
-  iterations: 300
+  iterations: 20
 refine:
   local_iter: 5
-  rounds: 60
+  rounds: 4
 optimizer:
   name: sgd
   params:

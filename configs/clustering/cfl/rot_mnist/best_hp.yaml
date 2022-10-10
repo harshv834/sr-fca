@@ -1,22 +1,44 @@
-model: 
+batch:
+  test: 512
+  train: 50
+client_threshold: 48.40252257105335
+clustering: cfl
+dataset:
+  hidden_size: 200
+  input_size: 784
+  name: rot_mnist
+  num_classes: 10
+  num_clusters: 4
+freq:
+  metrics: 30
+  print: 100
+  save: 150
+gamma_max: 0.621424678977208
+iterations: 210
+local_iter: 3
+model:
   name: two_layer_lin
   params:
+    hidden_size: 200
     input_size: 784
-    hidden_size: 2048
-    num_classes: 10    
-freq:
-  metrics: 5
-  save: 150
-  print: 100
-num_clusters : 4 
-num_clients_per_round: 3
-stop_threshold : 0.5
-client_threshold : 0.6
-gamma_max : 0.4
-local_iter: 5
-rounds: 60
+    num_classes: 10
+num_clients: 100
+num_clients_per_round: 4
+num_clusters: 7
 optimizer:
-  name: sgd
+  name: adam
   params:
-    lr: 0.1
-
+    lr: 0.0004169148648271179
+optimizer_name: adam
+optimizer_params_lr: 0.0004169148648271179
+path:
+  data: /base_vol/sr_fca_main/experiments/rot_mnist/seed_9/data
+  results: /base_vol/sr_fca_main/experiments/rot_mnist/seed_9/results/cfl
+rounds: 70
+seed: 9
+stop_threshold: 8.508769590263872
+time:
+  t0: 1665354768.8363948
+  tcluster: 1665355051.503396
+  tdataset: 1665354769.6658921
+  tnew: 1665354769.6658921

@@ -130,3 +130,4 @@ dmypy.json
 
 ## Extra directories to ignore
 experiments/*
+*.pt

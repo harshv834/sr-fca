@@ -20,6 +20,7 @@ if __name__ == "__main__":
     )
     clustering = CLUSTERING_DICT[args["clustering"]](fldataset.config, tune=False)
     metrics = clustering.cluster(fldataset)
+    clustering.config["time"]["tcluster"] = time()
     print(
         "Clustered FL ran in {} s".format(
             clustering.config["time"]["tcluster"]

@@ -4,24 +4,28 @@ from time import time
 import numpy as np
 import yaml
 from ray import air, tune
-from ray.air import session
+from ray.air import session, RunConfig
 from ray.tune import with_parameters, with_resources
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search import ConcurrencyLimiter
 from ray.tune.search.optuna import OptunaSearch
 from tqdm import tqdm
+import os
 
 from src.clustering import CLUSTERING_DICT
 from src.datasets.base import FLDataset
 from src.utils import args_getter, check_nan, get_search_space, tune_config_update
 import logging
+import torch
 
 tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
-logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
+# logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
 import warnings
+import ray
 
-warnings.filterwarnings("ignore")
-
+# warnings.filterwarnings(
+#     "ignore", category=pl.utilities.warnings.LightningDeprecationWarning
+# )
 
 
 def objective(config, fldataset):
@@ -56,13 +60,25 @@ else:
 best_hp_path, search_space_func = get_search_space(fldataset.config)
 searcher = OptunaSearch(space=search_space_func, metric="test_metric", mode=mode)
 algo = ConcurrencyLimiter(searcher, max_concurrent=4)
+ray.init(
+    address="local",
+    log_to_driver=False,
+    num_cpus=10,
+    num_gpus=torch.cuda.device_count(),
+)
 tuner = tune.Tuner(
     with_resources(
-        with_parameters(objective, fldataset=fldataset), resources={"cpu": 3, "gpu":1}
+        with_parameters(objective, fldataset=fldataset),
+        resources={"cpu": 3, "gpu": 1},
     ),
     tune_config=tune.TuneConfig(
         search_alg=algo,
-        num_samples=100,
+        num_samples=30,
+    ),
+    run_config=RunConfig(
+        name=fldataset.config["clustering"] + "_" + fldataset.config["dataset"]["name"],
+        local_dir=os.path.join(fldataset.config["path"]["results"], "tuning"),
+        verbose=0,
     ),
 )
 results = tuner.fit()
