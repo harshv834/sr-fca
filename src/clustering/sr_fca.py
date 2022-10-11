@@ -14,6 +14,7 @@ from src.utils import (
     check_nan,
     compute_dist,
     correlation_clustering,
+    format_trainer_for_metrics,
     tune_config_update,
 )
 
@@ -45,7 +46,7 @@ class SRFCA(ClusterFLAlgo):
             # print("Nan or inf occurred in metrics")
 
         for refine_step in range(self.config["num_refine_steps"]):
-            self.refine(experiment, refine_step)
+            self.refine(experiment, refine_step, trainer)
             if check_nan(self.refine_metrics[refine_step]):
                 raise ValueError("Nan or inf occurred in metrics")
                 # return self.refine_metrics[refine_step]
@@ -68,9 +69,8 @@ class SRFCA(ClusterFLAlgo):
         for i in self.client_trainers.keys():
             client_save_dir = os.path.join(init_path, "client_{}".format(i))
             self.client_trainers[i].set_save_dir(client_save_dir)
-            self.format_trainers
             client_metrics = self.client_trainers[i].train(
-                trainer=trainer
+                trainer=trainer,
                 client_data=client_dict[i],
                 local_iter=self.config["init"]["iterations"],
             )
@@ -78,14 +78,14 @@ class SRFCA(ClusterFLAlgo):
         self.init_metrics = avg_metrics(init_metrics)
         torch.save(self.init_metrics, os.path.join(init_path, "metrics.pth"))
 
-        self.dist_clustering(client_dict, merge=False)
+        self.dist_clustering(client_dict, trainer=trainer, merge=False)
         if len(self.cluster_map.keys()) == 0:
             # raise ValueError("Made 0 clusters after INIT")
             self.cluster_map = TRIAL_MAP
 
         torch.save(self.cluster_map, os.path.join(init_path, "cluster_map.pth"))
 
-    def refine(self, experiment, refine_step):
+    def refine(self, experiment, refine_step, trainer):
         refine_path = os.path.join(
             self.config["path"]["results"], "refine_{}".format(refine_step)
         )
@@ -102,6 +102,7 @@ class SRFCA(ClusterFLAlgo):
                 client_idx=client_idx,
                 local_iter=self.config["refine"]["local_iter"],
                 rounds=self.config["refine"]["rounds"],
+                trainer=trainer,
             )
             self.cluster_trainers[i] = cluster_trainer
             refine_metrics.append((len(client_idx), cluster_metrics))
@@ -113,7 +114,7 @@ class SRFCA(ClusterFLAlgo):
             self.refine_metrics[refine_step], os.path.join(refine_path, "metrics.pth")
         )
 
-        self.recluster(experiment)
+        self.recluster(experiment, trainer)
         self.empty_cluster_check("REFINE step {}".format(refine_step))
         if len(self.cluster_map.keys()) == 0:
             # raise ValueError(
@@ -121,7 +122,7 @@ class SRFCA(ClusterFLAlgo):
             # )
             self.cluster_map = TRIAL_MAP
 
-        self.dist_clustering(client_dict, merge=True)
+        self.dist_clustering(client_dict, trainer=trainer, merge=True)
         if len(self.cluster_map.keys()) == 0:
             # raise ValueError(
             #     "Made 0 clusters after MERGE in Refine step {}".format(refine_step)
@@ -129,7 +130,7 @@ class SRFCA(ClusterFLAlgo):
             self.cluster_map = TRIAL_MAP
         torch.save(self.cluster_map, os.path.join(refine_path, "cluster_map.pth"))
 
-    def recluster(self, experiment):
+    def recluster(self, experiment, trainer):
         cluster_client_product = {}
         client_dict = experiment.client_dict
         for (cluster_id, client_id) in itertools.product(
@@ -137,6 +138,7 @@ class SRFCA(ClusterFLAlgo):
         ):
 
             dist = compute_dist(
+                trainer,
                 self.cluster_trainers[cluster_id],
                 self.client_trainers[client_id],
                 [client_dict[key] for key in self.cluster_map[cluster_id]],
@@ -171,21 +173,22 @@ class SRFCA(ClusterFLAlgo):
                 self.cluster_map[j] = cluster
                 j += 1
 
-    def dist_clustering(self, client_dict, merge=False):
+    def dist_clustering(self, client_dict, trainer, merge=False):
         if merge:
             clients = self.cluster_map
-            trainers = self.cluster_trainers
+            models = self.cluster_trainers
         else:
             clients = {i: [i] for i in client_dict.keys()}
-            trainers = self.client_trainers
+            models = self.client_trainers
         keys = list(clients.keys())
         graph = nx.Graph()
         graph.add_nodes_from(keys)
-
+        trainer = format_trainer_for_metrics(trainer,None)
         for i, j in list(itertools.combinations(keys, 2)):
             dist = compute_dist(
-                trainers[i],
-                trainers[j],
+                trainer,
+                models[i],
+                models[j],
                 [client_dict[key] for key in clients[i]],
                 [client_dict[key] for key in clients[j]],
                 self.config["dist_metric"],

@@ -24,7 +24,14 @@ from ray_lightning import RayStrategy
 from tqdm import tqdm
 from filelock import FileLock
 
-from src.utils import avg_metrics, check_nan, wt_dict_diff, wt_dict_norm
+from src.utils import (
+    avg_metrics,
+    check_nan,
+    format_trainer_for_metrics,
+    wt_dict_diff,
+    wt_dict_norm,
+    format_trainer_for_metrics,
+)
 import logging
 
 logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
@@ -150,40 +157,41 @@ class BaseTrainer(pl.LightningModule):
             if param.requires_grad:
                 param.data = wts[name]
 
-    def compute_metrics(self, client_data, train=False):
-        if self.config["tune"]:
-            trainer = pl.Trainer(
-                default_root_dir=self.save_dir,
-                # progress_bar=TQDMProgressBar(refresh_rate=20),
-                enable_model_summary=False,
-                enable_progress_bar=False,
-                strategy=RayStrategy(
-                    num_workers=3,
-                    num_cpus_per_worker=3,
-                    use_gpu=True,
-                ),
-                log_every_n_steps=1,
-                precision=16,
-                amp_backend="native",
-                limit_train_batches=0,
-                limit_val_batches=0,
-            )
-        else:
-            trainer = pl.Trainer(
-                default_root_dir=self.save_dir,
-                # progress_bar=TQDMProgressBar(refresh_rate=20),
-                devices=torch.cuda.device_count(),
-                accelerator="gpu",
-                enable_model_summary=False,
-                enable_progress_bar=False,
-                strategy="ddp_find_unused_parameters_false",
-                log_every_n_steps=1,
-                precision=16,
-                progress_bar_refresh_rate=10,
-                amp_backend="native",
-                limit_train_batches=0,
-                limit_val_batches=0,
-            )
+    def compute_metrics(self, client_data, trainer, train=False):
+        # if self.config["tune"]:
+        #     trainer = pl.Trainer(
+        #         default_root_dir=self.save_dir,
+        #         # progress_bar=TQDMProgressBar(refresh_rate=20),
+        #         enable_model_summary=False,
+        #         enable_progress_bar=False,
+        #         strategy=RayStrategy(
+        #             num_workers=3,
+        #             num_cpus_per_worker=3,
+        #             use_gpu=True,
+        #         ),
+        #         log_every_n_steps=1,
+        #         precision=16,
+        #         amp_backend="native",
+        #         limit_train_batches=0,
+        #         limit_val_batches=0,
+        #     )
+        # else:
+        #     trainer = pl.Trainer(
+        #         default_root_dir=self.save_dir,
+        #         # progress_bar=TQDMProgressBar(refresh_rate=20),
+        #         devices=torch.cuda.device_count(),
+        #         accelerator="gpu",
+        #         enable_model_summary=False,
+        #         enable_progress_bar=False,
+        #         strategy="ddp_find_unused_parameters_false",
+        #         log_every_n_steps=1,
+        #         precision=16,
+        #         progress_bar_refresh_rate=10,
+        #         amp_backend="native",
+        #         limit_train_batches=0,
+        #         limit_val_batches=0,
+        #     )
+        trainer = format_trainer_for_metrics(trainer, self.save_dir)
         trainer.test(
             self.model,
             client_data.train_dataloader() if train else client_data.test_dataloader(),
@@ -205,148 +213,150 @@ class ClientTrainer(BaseTrainer):
             self.save_dir = save_dir
             os.makedirs(self.save_dir, exist_ok=True)
 
-    def train(self, client_data, local_iter, rounds=None):
-        # if self.mode == "solo":
-        #     self.metrics = {}
-        # else:
-        #     metrics = None
-        ## Set model wts
+    def format_trainer_for_client(self, client_data, local_iter, trainer):
+        trainer._default_root_dir = self.save_dir
+        callbacks = []
+        logger = None
+        enable_progress_bar = False
         if self.config["dataset"]["name"] in ["synthetic", "shakespeare"]:
             metric_name = "val_loss"
             mode = "min"
         else:
             metric_name = "val_acc"
             mode = "max"
-        callbacks = []
-        logger = None
-        enable_progress_bar = False
-        if self.mode == "solo":
-            early_stopping = EarlyStopping(
-                monitor=metric_name,
-                mode=mode,
-                min_delta=1e-6,
-                patience=5,
-                verbose=False,
-            )
-            callbacks = [early_stopping]
-            model_checkpoint = ModelCheckpoint(
-                dirpath=self.save_dir,
-                save_last=True,
-                monitor=metric_name,
-                mode=mode,
-                every_n_train_steps=self.config["freq"]["save"],
-            )
-            callbacks.append(model_checkpoint)
-            logger = CSVLogger(self.save_dir)
-            progress_bar = TQDMProgressBar(refresh_rate=3)
-            callbacks.append(progress_bar)
-            enable_progress_bar = True
-            # import ipdb
+        # import ipdb
 
-            # ipdb.set_trace()
-        if self.config["tune"]:
-            self.trainer = pl.Trainer(
-                default_root_dir=self.save_dir,
-                strategy=RayStrategy(
-                    num_workers=3,
-                    num_cpus_per_worker=3,
-                    use_gpu=True,
-                    find_unused_parameters=False,
-                ),
-                val_check_interval=max(
-                    min(
-                        local_iter,
-                        self.config["freq"]["metrics"],
-                        len(client_data.train_dataloader()),
-                    )
-                    - 1,
-                    1,
-                ),
-                check_val_every_n_epoch=1,
-                callbacks=callbacks,
-                max_steps=local_iter,
-                enable_model_summary=False,
-                enable_progress_bar=enable_progress_bar,
-                # strategy="ddp_find_unused_parameters_false",
-                logger=logger,
-                log_every_n_steps=max(
-                    min(local_iter, self.config["freq"]["metrics"]) - 1, 1
-                ),
-                precision=16,
-                amp_backend="native",
+        # ipdb.set_trace()
+        # if self.mode == "solo":
+        #     early_stopping = EarlyStopping(
+        #         monitor=metric_name,
+        #         mode=mode,
+        #         min_delta=1e-6,
+        #         patience=5,
+        #         verbose=False,
+        #     )
+        #     callbacks = [early_stopping]
+        #     callbacks = []
+        #     model_checkpoint = ModelCheckpoint(
+        #         dirpath=self.save_dir,
+        #         save_last=True,
+        #         monitor=metric_name,
+        #         mode=mode,
+        #         every_n_train_steps=self.config["freq"]["save"],
+        #     )
+        #     callbacks.append(model_checkpoint)
+        #     logger = CSVLogger(self.save_dir)
+        #     progress_bar = TQDMProgressBar(refresh_rate=3)
+        #     callbacks.append(progress_bar)
+        #     enable_progress_bar = True
+
+        # trainer.logger = logger
+        # trainer.callbacks = callbacks
+        import ipdb
+
+        ipdb.set_trace()
+        trainer.enable_progress_bar = enable_progress_bar
+        trainer.fit_loop.max_steps = local_iter
+        trainer.val_check_interval = max(
+            min(
+                local_iter,
+                self.config["freq"]["metrics"],
+                len(client_data.train_dataloader()),
             )
-        else:
-            self.trainer = pl.Trainer(
-                default_root_dir=self.save_dir,
-                # progress_bar=TQDMProgressBar(refresh_rate=20),
-                devices=torch.cuda.device_count(),
-                accelerator="gpu",
-                val_check_interval=max(
-                    min(
-                        local_iter,
-                        self.config["freq"]["metrics"],
-                        len(client_data.train_dataloader()),
-                    )
-                    - 1,
-                    1,
-                ),
-                check_val_every_n_epoch=1,
-                callbacks=callbacks,
-                max_steps=local_iter,
-                enable_model_summary=False,
-                enable_progress_bar=enable_progress_bar,
-                strategy="ddp_find_unused_parameters_false",
-                logger=logger,
-                log_every_n_steps=max(
-                    min(local_iter, self.config["freq"]["metrics"]) - 1, 1
-                ),
-                precision=16,
-                amp_backend="native",
-            )
-        self.trainer.fit(
+            - 1,
+            1,
+        )
+
+        # trainer.check_val_every_n_epoch = 1
+        # trainer.log_every_n_steps = max(
+        #     min(local_iter, self.config["freq"]["metrics"]) - 1, 1
+        # )
+        # if trainer.accelerator is None:
+        #     print("1")
+        # trainer._logger_connector.on_trainer_init(
+        #     logger,
+        #     trainer.flush_logs_every_n_steps,
+        #     trainer.log_every_n_steps,
+        #     trainer.move_metrics_to_cpu,
+        # )
+        # if trainer.accelerator is None:
+        #     import ipdb
+
+        #     ipdb.set_trace()
+
+        # trainer._callback_connector.on_trainer_init(
+        #     callbacks=callbacks,
+        #     checkpoint_callback=trainer.checkpoint_callback,
+        #     enable_checkpointing=True,
+        #     enable_progress_bar=True,
+        #     progress_bar_refresh_rate=None,
+        #     process_position=0,
+        #     default_root_dir=trainer.default_root_dir,
+        #     weights_save_path=trainer.weights_save_path,
+        #     enable_model_summary=False,
+        #     weights_summary=trainer.weights_summary,
+        #     stochastic_weight_avg=False,
+        #     max_time=None,
+        #     accumulate_grad_batches=trainer.accumulate_grad_batches,
+        # )
+        # if trainer.accelerator is None:
+        #     import ipdb
+
+        #     ipdb.set_trace()
+
+        # # hook
+        # trainer._call_callback_hooks("on_init_start")
+        # trainer._data_connector.on_trainer_init(
+        #     trainer.check_val_every_n_epoch,
+        #     trainer.reload_dataloaders_every_n_epochs,
+        #     trainer.prepare_data_per_node,
+        # )
+        # if trainer.accelerator is None:
+        #     import ipdb
+
+        #     ipdb.set_trace()
+
+        # trainer._init_debugging_flags(
+        #     trainer.limit_train_batches,
+        #     trainer.limit_val_batches,
+        #     trainer.limit_test_batches,
+        #     trainer.limit_predict_batches,
+        #     trainer.val_check_interval,
+        #     trainer.overfit_batches,
+        #     trainer.fast_dev_run,
+        # )
+
+        # if trainer.accelerator is None:
+        #     import ipdb
+
+        #     ipdb.set_trace()
+        # # Callback system
+        # trainer._call_callback_hooks("on_init_end")
+
+        return trainer
+
+    def train(self, client_data, local_iter, trainer, rounds=None):
+        # if self.mode == "solo":
+        #     self.metrics = {}
+        # else:
+        #     metrics = None
+        ## Set model wts
+        # import ipdb
+
+        # ipdb.set_trace()
+        trainer = self.format_trainer_for_client(
+            client_data=client_data, local_iter=local_iter, trainer=trainer
+        )
+        trainer.fit(
             self.model,
             client_data,
         )
         if self.mode == "solo":
-            self.trainer.test(self.model, client_data, verbose=False)
-            self.metrics = self.trainer.logged_metrics
+            # trainer.test(self.model, client_data, verbose=False)
+            self.metrics = trainer.logged_metrics
         else:
             self.metrics = None
         return self.metrics
-
-        ## TODO : get model weights
-
-        # ## Local Freq
-        # if self.mode == "solo":
-        #     if (
-        #         iteration % self.config["freq"]["metrics"] == 0
-        #         or iteration == local_iter - 1
-        #     ):
-        #         self.model.eval()
-        #         metrics = self.compute_metrics(client_data)
-        #         self.metrics[iteration] = metrics
-        #         if check_nan(metrics):
-        #             self.model.eval()
-        #             self.model.cpu()
-        #             raise ValueError("Nan or inf occurred in metrics")
-        #             # return metrics
-        #     if (
-        #         iteration % self.config["freq"]["save"] == 0
-        #         or iteration == local_iter - 1
-        #     ):
-        #         self.save_model_weights()
-        #         self.save_metrics()
-        #     if (
-        #         iteration % self.config["freq"]["print"] == 0
-        #         or iteration == local_iter - 1
-        #     ):
-        #         print(
-        #             "Iteration : {} \n , Metrics : {}\n".format(iteration, metrics)
-        #         )
-
-        # self.model.eval()
-        # self.model.cpu()
-        # return metrics
 
 
 class ClusterTrainer(BaseTrainer):
@@ -368,7 +378,7 @@ class ClusterTrainer(BaseTrainer):
             diff_wt = wt_dict_diff(model_wt, self.prev_model_wt)
             return wt_dict_norm(diff_wt) < self.stop_threshold
 
-    def train(self, client_dict, client_idx, local_iter, rounds):
+    def train(self, client_dict, client_idx, local_iter, rounds, trainer):
         self.num_clients = len(client_idx)
         self.client_idx = client_idx
         client_trainers = {
@@ -398,52 +408,59 @@ class ClusterTrainer(BaseTrainer):
             client_trainers = self.send_to_clients(client_trainers, selected_clients)
             for i in selected_clients:
                 client_trainers[i].model.set_round_and_local_iter(local_iter, round_id)
-                _ = client_trainers[i].train(client_dict[i], local_iter, round_id)
+                _ = client_trainers[i].train(
+                    client_data=client_dict[i],
+                    local_iter=local_iter,
+                    rounds=round_id,
+                    trainer=trainer,
+                )
             self.average_model(client_trainers, selected_clients)
 
             if (round_id + 1) * local_iter % self.config["freq"][
                 "metrics"
             ] == 0 or round_id == last_round - 1:
                 metrics_list = []
+                trainer = format_trainer_for_metrics(trainer, self.save_dir)
                 for client_id in client_idx:
-                    if self.config["tune"]:
-                        trainer = pl.Trainer(
-                            default_root_dir=self.save_dir,
-                            enable_model_summary=False,
-                            max_steps=last_round - first_round,
-                            enable_progress_bar=False,
-                            strategy=RayStrategy(
-                                num_workers=3,
-                                num_cpus_per_worker=3,
-                                use_gpu=True,
-                            ),
-                            log_every_n_steps=1,
-                            logger=CSVLogger(self.save_dir),
-                            precision=16,
-                            enable_checkpointing=False,
-                            amp_backend="native",
-                            limit_train_batches=0,
-                            limit_val_batches=0,
-                        )
+                    # if self.config["tune"]:
+                    #     trainer = pl.Trainer(
+                    #         default_root_dir=self.save_dir,
+                    #         enable_model_summary=False,
+                    #         max_steps=last_round - first_round,
+                    #         enable_progress_bar=False,
+                    #         strategy=RayStrategy(
+                    #             num_workers=3,
+                    #             num_cpus_per_worker=3,
+                    #             use_gpu=True,
+                    #         ),
+                    #         log_every_n_steps=1,
+                    #         logger=CSVLogger(self.save_dir),
+                    #         precision=16,
+                    #         enable_checkpointing=False,
+                    #         amp_backend="native",
+                    #         limit_train_batches=0,
+                    #         limit_val_batches=0,
+                    #     )
 
-                    else:
-                        trainer = pl.Trainer(
-                            # progress=TQDMProgressBar(refresh_rate=20),
-                            default_root_dir=self.save_dir,
-                            devices=torch.cuda.device_count(),
-                            accelerator="gpu",
-                            enable_model_summary=False,
-                            max_steps=last_round - first_round,
-                            enable_progress_bar=False,
-                            strategy="ddp_find_unused_parameters_false",
-                            log_every_n_steps=1,
-                            logger=CSVLogger(self.save_dir),
-                            precision=16,
-                            enable_checkpointing=False,
-                            amp_backend="native",
-                            limit_train_batches=0,
-                            limit_val_batches=0,
-                        )
+                    # else:
+                    #     trainer = pl.Trainer(
+                    #         # progress=TQDMProgressBar(refresh_rate=20),
+                    #         default_root_dir=self.save_dir,
+                    #         devices=torch.cuda.device_count(),
+                    #         accelerator="gpu",
+                    #         enable_model_summary=False,
+                    #         max_steps=last_round - first_round,
+                    #         enable_progress_bar=False,
+                    #         strategy="ddp_find_unused_parameters_false",
+                    #         log_every_n_steps=1,
+                    #         logger=CSVLogger(self.save_dir),
+                    #         precision=16,
+                    #         enable_checkpointing=False,
+                    #         amp_backend="native",
+                    #         limit_train_batches=0,
+                    #         limit_val_batches=0,
+                    #     )
+
                     trainer.test(
                         self.model,
                         client_dict[client_id],
@@ -528,7 +545,7 @@ class ClusterTrainer(BaseTrainer):
 
         ###### This needs a better name
         wts_dict_of_lists = {
-            key: torch.stack([wt[key].cpu() for wt in wts_list], dim=0)
+            key: torch.stack([wt[key].to("cpu") for wt in wts_list], dim=0)
             for key in wts_list[0].keys()
         }
 

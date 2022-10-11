@@ -3,7 +3,7 @@ from functools import partialmethod
 from time import time
 
 import numpy as np
-
+import torchvision
 from ray_lightning.tune import get_tune_resources
 import pytorch_lightning as pl
 import torch
@@ -23,23 +23,38 @@ import contextlib
 from src.clustering import CLUSTERING_DICT
 from src.datasets.base import FLDataset
 from src.utils import args_getter, check_nan, get_search_space, tune_config_update
+from ray_lightning import RayStrategy
+from pytorch_lightning.utilities.warnings import LightningDeprecationWarning
 
-tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
+# tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
 import warnings
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=LightningDeprecationWarning)
 torch.warnings.filterwarnings("ignore")
 pl.utilities.warnings.warnings.filterwarnings("ignore")
 os.environ["PYTHONWARNINGS"] = "ignore"
 
 
 def objective(config, fldataset):
+    trainer = pl.Trainer(
+        default_root_dir=fldataset.config["path"]["results"],
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        strategy=RayStrategy(
+            num_workers=3,
+            num_cpus_per_worker=3,
+            use_gpu=True,
+        ),
+        log_every_n_steps=1,
+        precision=16,
+        amp_backend="native",
+    )
     clustering = CLUSTERING_DICT[args["clustering"]](
         fldataset.config, tune=True, tune_config=config
     )
-    metrics = clustering.cluster(fldataset)
+    metrics = clustering.cluster(fldataset, trainer=trainer)
     if fldataset.config["dataset"]["name"] == "synthetic":
         metric_name = "test_loss"
     else:
@@ -78,44 +93,32 @@ with open(os.devnull, "w") as devnull:
             with torch.warnings.catch_warnings(record=True) as torch_w:
                 torch.warnings.simplefilter("ignore")
                 with pl.utilities.warnings.warnings.catch_warnings(record=True) as pl_w:
-                    trainer = pl.Trainer(
-                        default_root_dir=fldataset.config["path"]["results"],
-                        # progress_bar=TQDMProgressBar(refresh_rate=20),
-                        enable_model_summary=False,
-                        enable_progress_bar=False,
-                        strategy=RayStrategy(
-                            num_workers=3,
-                            num_cpus_per_worker=3,
-                            use_gpu=True,
-                        ),
-                        log_every_n_steps=1,
-                        precision=16,
-                        amp_backend="native",
-                        limit_train_batches=0,
-                        limit_val_batches=0,
-                    )
-                    ray.init(
-                        log_to_driver=False,
-                        address="local",
-                        configure_logging=True,
-                        logging_level=logging.CRITICAL,
-                    )
-                    analysis = tune.run(
-                        with_parameters(objective, fldataset=fldataset),
-                        search_alg=algo,
-                        num_samples=1,
-                        name=fldataset.config["dataset"]["name"]
-                        + "_"
-                        + fldataset.config["clustering"]
-                        + "_"
-                        + str(fldataset.config["seed"]),
-                        metric="test_metric",
-                        mode=mode,
-                        resources_per_trial=get_tune_resources(
-                            num_cpus_per_worker=3, num_workers=3, use_gpu=True
-                        ),
-                        verbose=False,
-                    )
+                    with torchvision.warnings.catch_warnings(record=True) as tv_w:
+                        torchvision.warnings.simplefilter("ignore")
+
+                        ray.init(
+                            # log_to_driver=False,
+                            address="local",
+                            configure_logging=True,
+                            logging_level=logging.CRITICAL,
+                        )
+
+                        analysis = tune.run(
+                            with_parameters(objective, fldataset=fldataset),
+                            search_alg=algo,
+                            num_samples=1,
+                            name=fldataset.config["dataset"]["name"]
+                            + "_"
+                            + fldataset.config["clustering"]
+                            + "_"
+                            + str(fldataset.config["seed"]),
+                            metric="test_metric",
+                            mode=mode,
+                            resources_per_trial=get_tune_resources(
+                                num_cpus_per_worker=3, num_workers=3, use_gpu=True
+                            ),
+                            verbose=False,
+                        )
 # ## Check_nan here with config
 try:
     best_result = analysis.best_result

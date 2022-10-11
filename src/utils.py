@@ -17,6 +17,7 @@ from pytorch_lightning.utilities.seed import seed_everything
 from torch.cuda.amp import autocast
 from ray_lightning import RayStrategy
 import logging
+
 logging.getLogger("pytorch_lightning").setLevel(logging.CRITICAL)
 
 
@@ -130,12 +131,12 @@ def compute_metric(
                     out = model(X)  # Test-time augmentation
 
                 if loss is not None:
-                    total += loss(out, Y).item()
+                    total += loss(out, Y).detach()
                 else:
-                    total += out.argmax(1).eq(Y).sum().cpu().item()
+                    total += out.argmax(1).eq(Y).sum().detach()
                 total_num += Y.shape[0]
 
-    model.cpu()
+    model.to("cpu")
     return total / total_num
 
 
@@ -242,35 +243,36 @@ def euclidean_dist(w1, w2):
 #     return model_trainer.trainer.logged_metrics["test_loss"]
 
 
-def compute_dist(model_1, model_2, client_1, client_2, dist_metric, tune=False):
+def compute_dist(
+    trainer, model_1, model_2, client_1, client_2, dist_metric, tune=False
+):
     if dist_metric == "euclidean":
         return euclidean_dist(model_1.get_model_wts(), model_2.get_model_wts())
     elif dist_metric == "cross_entropy":
 
         model_1_client_2 = 0.0
         for client in client_2:
-            if tune:
-                trainer = pl.Trainer(
-                    enable_model_summary=False,
-                    enable_progress_bar=False,
-                    strategy=RayStrategy(num_workers=3, num_cpus_per_worker=3, use_gpu=True),
-                    precision=16,
-                    amp_backend="native",
-                    log_every_n_steps=1,
-                )
+            # if tune:
+            #     trainer = pl.Trainer(
+            #         enable_model_summary=False,
+            #         enable_progress_bar=False,
+            #         strategy=RayStrategy(num_workers=3, num_cpus_per_worker=3, use_gpu=True),
+            #         precision=16,
+            #         amp_backend="native",
+            #         log_every_n_steps=1,
+            #     )
 
-                
-            else:
-                trainer = pl.Trainer(
-                    devices=1,
-                    accelerator="gpu",
-                    enable_model_summary=False,
-                    enable_progress_bar=False,
-                    strategy="ddp_find_unused_parameters_false",
-                    precision=16,
-                    amp_backend="native",
-                    log_every_n_steps=1,
-                )
+            # else:
+            #     trainer = pl.Trainer(
+            #         devices=1,
+            #         accelerator="gpu",
+            #         enable_model_summary=False,
+            #         enable_progress_bar=False,
+            #         strategy="ddp_find_unused_parameters_false",
+            #         precision=16,
+            #         amp_backend="native",
+            #         log_every_n_steps=1,
+            #     )
             trainer.test(
                 model_1.model, client.train_dataloader(), verbose=False, ckpt_path=None
             )
@@ -279,26 +281,26 @@ def compute_dist(model_1, model_2, client_1, client_2, dist_metric, tune=False):
         model_1_client_2 = model_1_client_2 / len(client_2)
         model_2_client_1 = 0.0
         for client in client_1:
-            if tune:
-                trainer = pl.Trainer(
-                    enable_model_summary=False,
-                    enable_progress_bar=False,
-                    strategy=RayStrategy(num_workers=3, num_cpus_per_worker=3, use_gpu=True),
-                    precision=16,
-                    amp_backend="native",
-                    log_every_n_steps=1,
-                )
-            else:
-                trainer = pl.Trainer(
-                    devices=1,
-                    accelerator="gpu",
-                    enable_model_summary=False,
-                    enable_progress_bar=False,
-                    strategy="ddp_find_unused_parameters_false",
-                    precision=16,
-                    amp_backend="native",
-                    log_every_n_steps=1,
-                )
+            # if tune:
+            #     trainer = pl.Trainer(
+            #         enable_model_summary=False,
+            #         enable_progress_bar=False,
+            #         strategy=RayStrategy(num_workers=3, num_cpus_per_worker=3, use_gpu=True),
+            #         precision=16,
+            #         amp_backend="native",
+            #         log_every_n_steps=1,
+            #     )
+            # else:
+            #     trainer = pl.Trainer(
+            #         devices=1,
+            #         accelerator="gpu",
+            #         enable_model_summary=False,
+            #         enable_progress_bar=False,
+            #         strategy="ddp_find_unused_parameters_false",
+            #         precision=16,
+            #         amp_backend="native",
+            #         log_every_n_steps=1,
+            #     )
             trainer.test(
                 model_2.model, client.train_dataloader(), verbose=False, ckpt_path=None
             )
@@ -438,8 +440,8 @@ def convert_to_cpu(val):
     val_arr = val
     if type(val) != np.ndarray:
         if val.device != "cpu":
-            val_arr = val_arr.cpu()
-        val_arr = val_arr.cpu()
+            val_arr = val_arr.detach()
+        val_arr = val_arr.detach()
     return val_arr
 
 
@@ -500,19 +502,69 @@ def train_val_split(train_data, val_fraction=0.2):
     val_data = (X[val_start_idx:], y[val_start_idx:])
     return train_data, val_data
 
+
 def tune_config_update(config):
     if config["clustering"] == "sr_fca":
         config["refine"]["rounds"] = ceil(
-            int(config["init"]["iterations"])
-            / int(config["refine"]["local_iter"])
+            int(config["init"]["iterations"]) / int(config["refine"]["local_iter"])
         )
 
-    elif config["clustering"] in ["ifca","cfl","fedavg"]:
-        config["rounds"] = ceil(
-            int(config["iterations"]) / int(config["local_iter"])
-        )
+    elif config["clustering"] in ["ifca", "cfl", "fedavg"]:
+        config["rounds"] = ceil(int(config["iterations"]) / int(config["local_iter"]))
     else:
-        raise NotImplementedError("Not implemented clustering {}".format(config["clustering"]))
-    
+        raise NotImplementedError(
+            "Not implemented clustering {}".format(config["clustering"])
+        )
+
     return config
-        
+
+
+def format_trainer_for_metrics(trainer, save_dir):
+    trainer._default_root_dir = save_dir
+    trainer.log_every_n_steps = 1
+    trainer.limit_val_batches = 0
+    trainer.enable_progress_bar = False
+    trainer.enable_model_checkpointing = False
+    trainer.limit_train_batches = 0
+    trainer.callbacks = []
+    # trainer.logger = None
+    trainer.enable_model_checkpointing = False
+    ## maybe some callbacks for formatting trainer for the main case.
+    trainer._callback_connector.on_trainer_init(
+        trainer.callbacks,
+        trainer.checkpoint_callback,
+        trainer.enable_model_checkpointing,
+        trainer.enable_progress_bar,
+        trainer.progress_bar_refresh_rate,
+        trainer.process_position,
+        trainer.default_root_dir,
+        trainer.weights_save_path,
+        trainer.enable_model_summary,
+        trainer.weights_summary,
+        trainer.stochastic_weight_avg,
+        trainer.max_time,
+        trainer.accumulate_grad_batches,
+    )
+
+    # hook
+    trainer._call_callback_hooks("on_init_start")
+    trainer._data_connector.on_trainer_init(
+        trainer.check_val_every_n_epoch,
+        trainer.reload_dataloaders_every_n_epochs,
+        trainer.prepare_data_per_node,
+    )
+
+    trainer._init_debugging_flags(
+        trainer.limit_train_batches,
+        trainer.limit_val_batches,
+        trainer.limit_test_batches,
+        trainer.limit_predict_batches,
+        trainer.val_check_interval,
+        trainer.overfit_batches,
+        trainer.fast_dev_run,
+    )
+
+    # Callback system
+    trainer._call_callback_hooks("on_init_end")
+
+    return trainer
