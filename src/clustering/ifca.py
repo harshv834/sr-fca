@@ -36,8 +36,9 @@ class IFCA(ClusterFLAlgo):
         client_dict = experiment.client_dict
         self.round_metrics = {}
         for round_id in tqdm(range(self.config["rounds"])):
-            self.min_loss_clustering(client_dict)
-            self.empty_cluster_check("round id : {}".format(round_id))
+            if round_id != 0:
+                self.min_loss_clustering(client_dict)
+                self.empty_cluster_check("round id : {}".format(round_id))
             torch.save(
                 self.cluster_map,
                 os.path.join(self.config["path"]["results"], "cluster_map.pth"),
@@ -45,18 +46,19 @@ class IFCA(ClusterFLAlgo):
 
             self.round_metrics[round_id] = []
             for cluster_id in range(len(self.cluster_trainers)):
-                metrics = self.cluster_trainers[cluster_id].train(
-                    client_dict=client_dict,
-                    client_idx=self.cluster_map[cluster_id],
-                    local_iter=self.config["local_iter"],
-                    rounds=(round_id, round_id + 1),
-                )
-                if check_nan(metrics):
-                    # return metrics
-                    raise ValueError("Nan or inf occurred in metrics")
-            self.round_metrics[round_id].append(
-                (len(self.cluster_map[cluster_id]), metrics)
-            )
+                if len(self.cluster_map[cluster_id]) > 0:
+                    metrics = self.cluster_trainers[cluster_id].train(
+                        client_dict=client_dict,
+                        client_idx=self.cluster_map[cluster_id],
+                        local_iter=self.config["local_iter"],
+                        rounds=(round_id, round_id + 1),
+                    )
+                    if check_nan(metrics):
+                        # return metrics
+                        raise ValueError("Nan or inf occurred in metrics")
+                    self.round_metrics[round_id].append(
+                        (len(self.cluster_map[cluster_id]), metrics)
+                    )
             self.round_metrics[round_id] = avg_metrics(self.round_metrics[round_id])
             if (
                 round_id % self.config["freq"]["save"] == 0

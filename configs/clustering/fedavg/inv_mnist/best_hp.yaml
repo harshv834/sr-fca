@@ -7,11 +7,45 @@ model:
 freq:
   metrics: 5
   save: 150
-  print: 100
-num_clients_per_round: 3
+  print: 5
+num_clients_per_round: 10
 local_iter: 5
-rounds: 2
+rounds: 50
+iterations: 250
 optimizer:
-  name: sgd
+  name: adam
   params:
-    lr: 0.1
+    lr: 0.002
+
+
+
+# Choice #1 on dev 0
+# optimizer:
+#   name: adam
+#   params:
+#     lr: 0.001
+# loss': 0.028754175858509624, 'acc': 0.5325166666666665}, 'test': {'loss': 0.014904283586330717, 'acc': 0.5287999999999999}}
+
+# Choice #1 on dev 1
+# optimizer:
+#   name: adam
+#   params:
+#     lr: 0.1
+#{'train': {'loss': 0.05012959084510804, 'acc': 0.15188333333333337}, 'test': {'loss': 0.026774161505699154, 'acc': 0.15310000000000004}}
+
+
+# optimizer:
+#   name: adam
+#   params:
+#     lr: 0.01
+# {'train': {'loss': 0.04191467164059479, 'acc': 0.30515}, 'test': {'loss': 0.02130950148105621, 'acc': 0.3052000000000001}}
+
+
+
+#lr 0.0001 adam 
+#{'train': {'loss': 0.017951718846893835, 'acc': 0.8747500000000002}, 'test': {'loss': 0.0096899863317│inv_mnist/seed_9/results/fedavg'}, 'batch': {'train': 50, 'test': 512}}
+#60882, 'acc': 0.8726000000000004}} 
+
+#adam lr 0.0002
+#{'train': {'loss': 0.017820808987135568, 'acc': 0.878266666666667}, 'test': {'loss': 0.009654038134962318, 'acc': 0.8759999999999999}}
+

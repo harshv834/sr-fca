@@ -36,7 +36,7 @@ class ClusterFLAlgo(ABC):
             for cluster_id in zero_client_clusters:
                 zero_client_cluster_names += " {}".format(cluster_id)
 
-            raise ValueError(
+            print(
                 "Clusters "
                 + zero_client_cluster_names
                 + " have 0 clients after "

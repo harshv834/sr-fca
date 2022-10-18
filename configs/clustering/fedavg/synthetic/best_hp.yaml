@@ -1,44 +1,101 @@
-batch:
-  test: 512
-  train: 50
 clustering: fedavg
-dataset:
-  dimension: 1000
-  name: synthetic
-  noise_scale: 0.001
-  num_clusters: 2
-  num_samples:
-    test: 100
-    train: 100
-  scale: 1
 freq:
   metrics: 30
   print: 30
   save: 60
-iterations: 20
-local_iter: 2
+iterations: 280
+local_iter: 5
 model:
   name: one_layer_lin
   params:
     dimension: 1000
     scale: 1
-num_clients: 50
-num_clients_per_round: 9
+num_clients_per_round: 10
+rounds: 56
 optimizer:
   name: sgd
   params:
-    lr: 0.0012818957761503438
-    momentum: 0.6790195688922952
-optimizer_name: sgd
-optimizer_params_lr: 0.0012818957761503438
-optimizer_params_momentum: 0.6790195688922952
-path:
-  data: /base_vol/sr_fca_main/experiments/synthetic/seed_9/data
-  results: /base_vol/sr_fca_main/experiments/synthetic/seed_9/results/fedavg
-rounds: 10
+   lr : 0.001
+
+
+# adam lr 0.0001
+# {'train': {'loss': 4.789130615575426}, 'test': {'loss': 5.1285772460937515}}                         │
+# Similar for adam lr 0.0001
+#adam lr 0.001
+#{'train': {'loss': 4.0574505895137785}, 'test': {'loss': 4.854442736816406}}                         │
+# adam lr 0.01
+# {'train': {'loss': 2.339233525848388}, 'test': {'loss': 4.259618597412109}}                          │
+# adam lr 0.05
+# {'train': {'loss': 3.5391313632965105}, 'test': {'loss': 4.799857501220703}}                         │
+
+#adam lr 0.1
+#{'train': {'loss': 4.726768366241455}, 'test': {'loss': 5.358185125732422}}                          │
+
+
+#adam lr 0.05
+#{'train': {'loss': 3.5391313632965105}, 'test': {'loss': 4.799857501220703}}                         │
+
+
+# sgd lr 0.0001
+# {'train': {'loss': 3.47087924671173}, 'test': {'loss': 4.5784794677734375}}                          │
+
+# sgd lr 0.0025
+# {'train': {'loss': 2.178293870544434}, 'test': {'loss': 4.093807104492187}}
+
+
+# sgd lr 0.001
+#{'train': {'loss': 2.110143858337402}, 'test': {'loss': 4.030049975585939}}
+
+
+# sgd lr :0.05
+# {'train': {'loss': 4.961837243175506}, 'test': {'loss': 5.256488348388673}}                          │
+
+# sgd lr :0.01
+# {'train': {'loss': 4.8476908817403}, 'test': {'loss': 5.154563073730467}}                            │
+
+
+# optimizer:
+#   name: sgd
+#   params:
+#    lr : 0.1
+# {'train': {'loss': 16.014543707275383}, 'test': {'loss': 10.13665244140625}}
+
+
+# adam lr 0.0001
+# {'train': {'loss': 4.882902969382134}, 'test': {'loss': 5.163839978027344}}
+
+
+# adam lr 0.05
+# {'train': {'loss': 5.071685320210457}, 'test': {'loss': 5.295513604736328}}
+
+
+# adam lr 0.1
+#   {'train': {'loss': 5.949852746200562}, 'test': {'loss': 5.766380236816408}}
+
+
+# Choice #3 ()
+# optimizer:
+#   name: adam
+#   params:
+#     lr :0.001
+# {'train': {'loss': 4.0574505895137785}, 'test': {'loss': 4.854442736816406}}
+
+
+
+# Choice #2
+# optimizer:
+#   name: adam
+#   params:
+#     lr: 0.01
+# {'train': {'loss': 4.882902969382134}, 'test': {'loss': 5.163839978027344}}
+
+# Choice #1
+# optimizer:
+#   name: sgd
+#   params:
+#     lr: 0.0012818957761503438
+#     momentum: 0.6790195688922952
+# {'train': {'loss': 4.882841362701466}, 'test': {'loss': 5.164091601562501}}
+
+rounds: 56
 seed: 9
-time:
-  t0: 1665332478.1341777
-  tcluster: 1665332492.3793583
-  tdataset: 1665332479.4634507
-  tnew: 1665332479.4634507

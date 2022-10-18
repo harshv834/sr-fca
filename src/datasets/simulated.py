@@ -42,11 +42,11 @@ def dataset_split(train_data, test_data, num_clients):
 
 def apply_client_het(train_chunks, test_chunks, transformation, num_clusters):
     num_clients = len(train_chunks)
-    assert (
-        num_clients % num_clusters == 0
-    ), "Number of clients {} not divisible by number of clusters {}".format(
-        len(train_chunks), num_clusters
-    )
+    # assert (
+    #     num_clients % num_clusters == 0
+    # ), "Number of clients {} not divisible by number of clusters {}".format(
+    #     len(train_chunks), num_clusters
+    # )
     if transformation == "inv":
         assert num_clusters == 2, "Inversion can create 2 clusters only"
         for i in range(num_clients):
@@ -65,11 +65,11 @@ def apply_client_het(train_chunks, test_chunks, transformation, num_clusters):
                 )
 
     elif transformation == "rot":
-
-        assert num_clusters in [2, 4], "Currently support only 2 or 4 rotated clusters"
-        for i in range(num_clients):
-            theta = int(360 * (i % num_clusters) / num_clusters)
-            train_chunks[i] = (rot_img(train_chunks[i][0], theta), train_chunks[i][1])
+        return train_chunks, test_chunks       
+        # assert num_clusters in [2, 4], "Currently support only 2 or 4 rotated clusters"
+        # for i in range(num_clients):
+        #     theta = int(360 * (i % num_clusters) / num_clusters)
+        #     train_chunks[i] = (rot_img(train_chunks[i][0], theta), train_chunks[i][1])
 
     else:
         raise ValueError(

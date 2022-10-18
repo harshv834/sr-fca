@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 
 
 class Net(nn.Module):
@@ -82,6 +83,18 @@ class ResNet9(nn.Module):
             nn.Linear(128, num_classes, bias=False),
             Mul(0.2),
         )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class ResNet(nn.Module):
+    def __init__(self, num_classes=10):
+        super(ResNet, self).__init__()
+        self.model = torchvision.models.resnet18(pretrained=True)
+        for _, param in self.model.named_parameters():
+            param.requires_grad = False
+        self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
 
     def forward(self, x):
         return self.model(x)

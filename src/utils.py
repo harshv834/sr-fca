@@ -14,6 +14,8 @@ import yaml
 from torch.cuda.amp import autocast
 from math import ceil
 
+import torch.nn as nn
+
 
 def args_getter():
     parser = argparse.ArgumentParser()
@@ -32,6 +34,7 @@ def args_getter():
             "rot_cifar10",
             "shakespeare",
             "femnist",
+            "rot_cifar10_ftrs"
         ],
         help="Dataset to use for this run",
     )
@@ -101,8 +104,10 @@ def compute_metric(
 ):
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
+
     if device is not None:
-        model = model.to(memory_format=torch.channels_last).to(device)
+        # model = model.to(memory_format=torch.channels_last)
+        model = model.cuda()
     if lstm_flag:
         batch_size, hidden = None, None
     with torch.no_grad():
@@ -145,33 +150,37 @@ def get_optimizer(model_parameters, config):
     return optimizer
 
 
-def get_lr_scheduler(config, optimizer, local_iter, round):
+def get_lr_scheduler(config, optimizer, local_iter, round_id):
     cond_1 = config["dataset"]["name"] == "rot_cifar10"
     cond_2 = config["clustering"] == "sr_fca"
-    if cond_1 and cond_2:
+    if cond_1:
         iters_per_epoch = 50000 // int(
             config["batch"]["train"]
-            * (config["num_clients"] // config["dataset"]["num_clusters"])
         )
-        epochs = config["init"]["iterations"] // iters_per_epoch
+        if cond_2:
+            epochs = config["init"]["iterations"] // iters_per_epoch
+        else:
+            epochs = (config["rounds"] * config["local_iter"]) // iters_per_epoch
         lr_schedule = np.interp(
             np.arange((epochs + 1) * iters_per_epoch),
             [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
             [0, 1, 0],
         )
-        if round is not None:
-            if type(round) == tuple:
-                first_iter = round[0] * local_iter
-                last_iter = max((round[1] + 1) * local_iter, lr_schedule.shape[0])
+        if round_id is not None:
+            if type(round_id) == tuple:
+                first_iter = round_id[0] * local_iter 
+                last_iter = min((round_id[1] + 1) * local_iter+1, lr_schedule.shape[0]) 
             else:
-                first_iter = 0
-                last_iter = max((round + 1) * local_iter, lr_schedule.shape[0])
+                first_iter = round_id * local_iter
+                last_iter = min((round_id + 1) * local_iter+1, lr_schedule.shape[0]) 
             lr_schedule = lr_schedule[first_iter:last_iter]
-    elif not cond_1 and cond_2:
-        lr_schedule = np.ones(config["init"]["iterations"] + 1)
+    # elif config["dataset"]["name"] == "rot_cifar10_ftrs":
+    #     return optim.lr_scheduler.ReduceLROnPlateau(optimizer,patience=2)
     else:
-        lr_schedule = np.ones(max(config["rounds"], local_iter) + 1)
-
+        if cond_2:
+            lr_schedule = np.ones(config["init"]["iterations"] + 1)
+        else:
+            lr_schedule = np.ones(max(config["rounds"], local_iter) + 1)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_schedule.__getitem__)
     return scheduler
 
@@ -427,28 +436,40 @@ def tune_config_update(config):
     return config
 
 
-def set_weights(model, path):
+def set_weights(name, model, path):
     model_wt = torch.load(path)
-    new_wts = OrderedDict()
-    new_wts["fc2.weight"] = torch.Tensor(model_wt["dense_1/kernel"]).t()
-    new_wts["fc2.bias"] = torch.Tensor(model_wt["dense_1/bias"])
-    new_wts["fc1.weight"] = torch.Tensor(model_wt["dense/kernel"]).t()
-    new_wts["fc1.bias"] = torch.Tensor(model_wt["dense/bias"])
-    new_wts["conv1.weight"] = torch.Tensor(model_wt["conv2d/kernel"]).permute(
-        3, 2, 0, 1
-    )
-    new_wts["conv2.weight"] = torch.Tensor(model_wt["conv2d_1/kernel"]).permute(
-        3, 2, 0, 1
-    )
-    new_wts["conv1.bias"] = torch.Tensor(model_wt["conv2d/bias"])
-    new_wts["conv2.bias"] = torch.Tensor(model_wt["conv2d_1/bias"])
-    model.load_state_dict(new_wts)
-    model.conv1.weight.requires_grad = False
-    model.conv2.weight.requires_grad = False
-    model.fc1.weight.requires_grad = True
-    model.fc2.weight.requires_grad = True
-    model.conv1.bias.requires_grad = False
-    model.conv2.bias.requires_grad = False
-    model.fc1.bias.requires_grad = True
-    model.fc2.bias.requires_grad = True
+
+    # new_wts = OrderedDict()
+    if name == "femnist":
+        model.load_state_dict(model_wt)
+
+        # new_wts["fc2.weight"] = torch.Tensor(model_wt["dense_1/kernel"]).t()
+        # new_wts["fc2.bias"] = torch.Tensor(model_wt["dense_1/bias"])
+        # new_wts["fc1.weight"] = torch.Tensor(model_wt["dense/kernel"]).t()
+        # new_wts["fc1.bias"] = torch.Tensor(model_wt["dense/bias"])
+        # new_wts["conv1.weight"] = torch.Tensor(model_wt["conv2d/kernel"]).permute(
+        #     3, 2, 0, 1
+        # )
+        # new_wts["conv2.weight"] = torch.Tensor(model_wt["conv2d_1/kernel"]).permute(
+        #     3, 2, 0, 1
+        # )
+        # new_wts["conv1.bias"] = torch.Tensor(model_wt["conv2d/bias"])
+        # new_wts["conv2.bias"] = torch.Tensor(model_wt["conv2d_1/bias"])
+        # model.load_state_dict(new_wts)
+        # model.conv1.weight.requires_grad = False
+        # model.conv2.weight.requires_grad = False
+        # model.fc1.weight.requires_grad = True
+        # model.fc2.weight.requires_grad = True
+        # model.conv1.bias.requires_grad = False
+        # model.conv2.bias.requires_grad = False
+        # model.fc1.bias.requires_grad = True
+        # model.fc2.bias.requires_grad = True
+    elif name == "rot_cifar10":
+        model.model.load_state_dict(model_wt)
+        children = list(model.model.children())
+        for child_id in range(len(children)):
+            for name, param in children[child_id].named_parameters():
+                if param.requires_grad:
+                    param.requires_grad = child_id >= len(children) - 2
+        model.model = nn.Sequential(*children)
     return model

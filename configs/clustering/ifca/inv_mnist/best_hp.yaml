@@ -3,17 +3,17 @@ model:
   params:
     input_size: 784
     hidden_size: 200
-    num_classes: 10
-
-num_clusters : 2
+    num_classes: 10    
 freq:
   metrics: 5
   save: 150
-  print: 100
-num_clients_per_round: 3
+  print: 5
+num_clients_per_round: 10
 local_iter: 5
-rounds: 60
+rounds: 50
+iterations: 250
 optimizer:
-  name: sgd
+  name: adam
   params:
-    lr: 0.1
+    lr: 0.0002
+num_clusters: 2

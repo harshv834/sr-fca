@@ -188,16 +188,20 @@ class SRFCA(ClusterFLAlgo):
                 self.config["dist_metric"],
             )
             dist_dict[(i, j)] = dist
-
+        import ipdb;ipdb.set_trace()
         if not merge:
-            self.config["dist_threshold"] = sorted(dist_dict.values())[
-                ceil(self.config["dist_fraction"] * len(dist_dict.keys()))
-            ]
+            if "dist_threshold" not in self.config.keys():
+                self.config["dist_threshold"] = sorted(dist_dict.values())[
+                    ceil(self.config["dist_fraction"] * len(dist_dict.keys()))
+                ]
         for (i, j), dist in dist_dict.items():
             if dist <= self.config["dist_threshold"]:
                 graph.add_edge(i, j)
         graph = graph.to_undirected()
-        dist_clustering = correlation_clustering(graph, self.config["size_threshold"])
+        dist_clustering = correlation_clustering(
+            graph, 0 if merge else self.config["size_threshold"]
+        )
+
         if merge:
             cluster_map = {}
             for i, cluster in dist_clustering.items():

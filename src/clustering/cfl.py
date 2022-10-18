@@ -46,10 +46,17 @@ class CFL(ClusterFLAlgo):
             rounds=self.config["rounds"],
         )
         self.cluster_trainers[cluster_id] = cluster_trainer
+        import ipdb
+
+        ipdb.set_trace()
         if len(self.cluster_map[cluster_id]) == 1:
             return
         else:
             alpha_mat, max_loss_client = self.compute_alpha_mat(cluster_id)
+            if np.isnan(alpha_mat).any() or np.isinf(alpha_mat).any():
+                print(
+                    "Nan or inf occurred in alpha for cluster : {}".format(cluster_id)
+                )
             partitions = self.optimal_bipartitioning(cluster_id, alpha_mat)
 
             alpha_max_cross = compute_alpha_max(alpha_mat, partitions)
@@ -67,6 +74,9 @@ class CFL(ClusterFLAlgo):
         alpha_mat = np.diag(np.ones(len(client_idx)))
         client_wt_diff = self.cluster_trainers[cluster_id].client_wt_diff
         wt_diff_norms = {i: wt_dict_norm(client_wt_diff[i]) for i in client_idx}
+        import ipdb
+
+        ipdb.set_trace()
         for (i, j) in itertools.combinations(client_idx, 2):
             dot = wt_dict_dot(client_wt_diff[i], client_wt_diff[j])
             alpha_mat[i][j] = dot / (wt_diff_norms[i] * wt_diff_norms[j])
@@ -80,26 +90,34 @@ class CFL(ClusterFLAlgo):
         alpha_flat = alpha_mat.flatten()
         sorted_idx = (-1 * alpha_flat).argsort()
         C = {i: set([i]) for i in client_idx}
+        cluster_list = list(C.keys())
+        import ipdb
+
+        ipdb.set_trace()
         for i in range(num_clients**2):
             i_1 = client_idx[sorted_idx[i] // num_clients]
             i_2 = client_idx[sorted_idx[i] % num_clients]
             c_temp = set([])
-            for j in client_idx:
+            j_min = max(cluster_list)
+            for j in cluster_list:
                 if i_1 in C[j] or i_2 in C[j]:
+                    j_min = min(j, j_min)
                     c_temp = c_temp.union(C[j])
                     C[j] = set()
-            non_empty = 0
-            non_empty_id = 0
+            C[j_min] = c_temp
+            cluster_list = []
             for key in C.keys():
                 if len(C[key]) > 0:
-                    non_empty += 1
-                    non_empty_id = key
-            if non_empty == 1:
+                    cluster_list.append(key)
+
+            C = {j: C[j] for j in cluster_list}
+            if len(cluster_list) == 2:
+                import ipdb; ipdb.set_trace()
                 partition_1_id = cluster_id * 2
                 partition_2_id = cluster_id * 2 + 1
                 return {
-                    partition_1_id: [client_id for client_id in C[non_empty_id]],
-                    partition_2_id: [client_id for client_id in c_temp],
+                    partition_1_id: [client_id for client_id in C[cluster_list[0]]],
+                    partition_2_id: [client_id for client_id in C[cluster_list[0]]],
                 }
 
     def cluster(self, experiment):

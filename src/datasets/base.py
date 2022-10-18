@@ -64,7 +64,7 @@ class FLDataset:
         dataset_name = self.config["dataset"]["name"]
         if len(dataset_name.split("_")) > 1:
             client_het = dataset_name.split("_")[0]
-            dataset_name = dataset_name.split("_")[-1]
+            dataset_name = dataset_name.split("_")[1]
         else:
             client_het = "real"
         dataset_path = self.config["path"]["data"]
@@ -86,6 +86,7 @@ class FLDataset:
             train_chunks, test_chunks = generate_synthetic_data(
                 self.config, dataset_path
             )
+
 
         else:
             raise ValueError("{} is not a valid dataset name".format(dataset_name))

@@ -2,16 +2,17 @@ model:
   name: two_layer_lin
   params:
     input_size: 784
-    hidden_size: 2048
+    hidden_size: 200
     num_classes: 10    
 freq:
-  metrics: 5
+  metrics: 10
   save: 150
-  print: 100
-num_clients_per_round: 3
+  print: 10
+num_clients_per_round: 10
 local_iter: 5
-rounds: 2
+rounds: 50
+iterations: 250
 optimizer:
-  name: sgd
+  name: adam
   params:
-    lr: 0.1
+    lr: 0.002

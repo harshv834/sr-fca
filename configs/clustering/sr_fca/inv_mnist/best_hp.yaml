@@ -4,22 +4,23 @@ model:
     input_size: 784
     hidden_size: 2048
     num_classes: 10    
-dist_threshold: 0.5
-size_threshold: 1
+dist_threshold: 0.9
+size_threshold: 2
 freq:
-  metrics: 5
+  metrics: 30
   save: 150
-  print: 100
+  print: 60
 num_refine_steps: 2
 beta: 0.15
-num_clients_per_round: 3
+num_clients_per_round: 10
 init:
-  iterations: 300
+  iterations: 280
 refine:
   local_iter: 5
-  rounds: 60
+  rounds: 56
 optimizer:
-  name: sgd
+optimizer:
+  name: adam
   params:
-    lr: 0.1
+    lr: 0.0002
 dist_metric : cross_entropy

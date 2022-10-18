@@ -3,26 +3,27 @@ model:
   params:
     seq_len : 80
     emb_dim: 8
-    n_hidden: 100
+    n_hidden: 256
     num_classes : 80
     n_layers: 2
-dist_threshold: 0.5
-size_threshold: 1
+dist_fraction: 0.25
+size_threshold: 2
 freq:
-  metrics: 5
+  metrics: 40
   save: 150
-  print: 100
+  print: 40
 num_refine_steps: 2
 beta: 0.15
-num_clients_per_round: 5
+num_clients_per_round: 10
 init:
-  iterations: 300
+  iterations: 2400
 refine:
-  local_iter: 5
-  rounds: 60
+  local_iter: 400
+  rounds: 6
 optimizer:
   name: sgd
   params:
-    lr: 0.003
-    momentum: 0.9
+    lr: 0.8
 dist_metric : cross_entropy
+
+

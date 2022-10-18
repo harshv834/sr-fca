@@ -27,4 +27,5 @@ if __name__ == "__main__":
             - clustering.config["time"]["tdataset"]
         )
     )
+    print(clustering.config)
     print(metrics)

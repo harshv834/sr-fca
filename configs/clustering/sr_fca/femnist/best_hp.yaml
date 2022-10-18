@@ -1,21 +1,21 @@
 model: 
   name: simplecnn
-dist_threshold: 0.5
-size_threshold: 1
+dist_fraction: 0.3
+size_threshold: 2
+num_refine_steps: 1
 freq:
-  metrics: 5
+  metrics: 30
   save: 150
-  print: 100
-num_refine_steps: 2
+  print: 60
 beta: 0.15
-num_clients_per_round: 7
+num_clients_per_round: 10
 init:
-  iterations: 300
+  iterations: 1000
 refine:
   local_iter: 5
-  rounds: 60
+  rounds: 200
 optimizer:
   name: sgd
   params:
-    lr: 0.1
+    lr: 0.04
 dist_metric : cross_entropy

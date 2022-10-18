@@ -3,19 +3,22 @@ model:
 dist_threshold: 0.5
 size_threshold: 1
 freq:
-  metrics: 5
+  metrics: 25
   save: 150
-  print: 100
+  print: 25
 num_refine_steps: 2
-beta: 0.15
-num_clients_per_round: 7
+beta: 0.2
+num_clients_per_round: 5
 init:
-  iterations: 300
+  iterations: 2000
 refine:
   local_iter: 5
-  rounds: 60
+  rounds: 400
 optimizer:
   name: sgd
   params:
-    lr: 0.1
+    lr: 0.5
+    momentum: 0.9
+    weight_decay: 0.0005
+label_smoothing: 0.1
 dist_metric : cross_entropy
