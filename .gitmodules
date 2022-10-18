@@ -1,6 +1,3 @@
-[submodule "cfl"]
-	path = cfl
-	url = git@github.com:felisat/clustered-federated-learning.git
 [submodule "ifca"]
 	path = ifca
 	url = git@github.com:jichan3751/ifca.git
