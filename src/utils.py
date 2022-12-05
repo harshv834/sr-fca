@@ -46,6 +46,7 @@ def args_getter():
         default="sr_fca",
         help="Clustering algo to use for this run, if all is specified run all algorithms and compare",
     )
+    parser.add_argument("--num_clusters", type=int, required=False, default = 3, help= "Number of clusters for IFCA")
     # parser.add_argument(
     #     "--dist-metric",
     #     choices=["euclidean", "cross_entropy"],
@@ -86,6 +87,7 @@ def read_algo_config(data_config, tune=False):
             except yaml.YAMLError as err:
                 print(err)
     ## Works only on python >=3.9.0
+    
     config = config | data_config
 
     if config["dataset"]["name"] == "synthetic":

@@ -59,14 +59,14 @@ class BaseTrainer(ABC):
                 else 0.0
             )
             self.loss_func = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-        if self.config["dataset"]["name"] in ["femnist"]:
+        # if self.config["dataset"]["name"] in ["femnist"]:
 
-            # if self.config["dataset"]["name"] in ["femnist", "rot_cifar10", "shakespeare"]:
-            self.model = set_weights(
-                self.config["dataset"]["name"],
-                self.model,
-                self.config["pretrained_path"],
-            )
+        #     # if self.config["dataset"]["name"] in ["femnist", "rot_cifar10", "shakespeare"]:
+        #     self.model = set_weights(
+        #         self.config["dataset"]["name"],
+        #         self.model,
+        #         self.config["pretrained_path"],
+        #     )
 
     def train(self):
         raise NotImplementedError
@@ -335,8 +335,6 @@ class ClusterTrainer(BaseTrainer):
 
         if self.config["dataset"]["name"] == "rot_cifar10":
             self.model = self.model.to(memory_format=torch.channels_last)
-        # flag = True
-        # # import ipdb;ipdb.set_trace()
         for round_id in tqdm(
             range(first_round, last_round + 1),
             disable=self.config["clustering"] == "ifca",

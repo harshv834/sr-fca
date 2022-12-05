@@ -1,56 +1,54 @@
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from abc import ABC
 from tqdm import tqdm
 import torchvision
 import os
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import random
+import argparse
+import torchvision.transforms as transforms
+from torch.cuda.amp import GradScaler, autocast
+from torch.optim import lr_scheduler
+import pickle
 
+import time
 
-config = {}
-config["seed"] = 1231
-seed = config["seed"]
-os.environ["PYTHONHASHSEED"] = str(seed)
-# Torch RNG
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-torch.cuda.manual_seed_all(seed)
-# Python RNG
-np.random.seed(seed)
-random.seed(seed)
+from typing import List
 
-config["participation_ratio"] = 0.5
-config["total_num_clients_per_cluster"] = 16
-config["num_clients_per_cluster"] = int(
-    config["participation_ratio"] * config["total_num_clients_per_cluster"]
+import torchvision
+import networkx as nx
+
+from ffcv.fields import IntField, RGBImageField
+from ffcv.fields.decoders import IntDecoder, SimpleRGBImageDecoder
+from ffcv.loader import Loader, OrderOption
+from ffcv.pipeline.operation import Operation
+from ffcv.transforms import (
+    RandomHorizontalFlip,
+    Cutout,
+    RandomTranslate,
+    Convert,
+    ToDevice,
+    ToTensor,
+    ToTorchImage,
 )
-config["num_clusters"] = 2
-config["num_clients"] = config["num_clients_per_cluster"] * config["num_clusters"]
-config["dataset"] = "cifar10"
+from ffcv.transforms.common import Squeeze
+from ffcv.writer import DatasetWriter
+import itertools
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--seed", type=int, required=True, help="Random seed for the experiment"
+)
+
 DATASET_LIB = {
     "mnist": torchvision.datasets.MNIST,
     "emnist": torchvision.datasets.EMNIST,
     "cifar10": torchvision.datasets.CIFAR10,
 }
-config["dataset_dir"] = "./experiments/dataset"
-config["results_dir"] = "./experiments/results"
-config["results_dir"] = os.path.join(
-    config["results_dir"], config["dataset"], "seed_{}".format(seed)
-)
-
-
-train_dataset = DATASET_LIB[config["dataset"]](
-    root=config["dataset_dir"], download=True, train=True
-)
-test_dataset = DATASET_LIB[config["dataset"]](
-    root=config["dataset_dir"], download=True, train=False
-)
-
-os.makedirs(config["results_dir"], exist_ok=True)
 
 
 def split(dataset_size, num_clients, shuffle):
@@ -114,9 +112,6 @@ def make_client_datasets(config):
     return train_chunks_total, test_chunks_total
 
 
-train_chunks, test_chunks = make_client_datasets(config)
-
-
 class ClientWriteDataset(Dataset):
     def __init__(self, data):
         super(ClientWriteDataset, self).__init__()
@@ -132,32 +127,6 @@ class ClientWriteDataset(Dataset):
         return (idx_data, idx_labels)
 
 
-import torchvision.transforms as transforms
-
-from typing import List
-
-import torchvision
-
-from ffcv.fields import IntField, RGBImageField
-from ffcv.fields.decoders import IntDecoder, SimpleRGBImageDecoder
-from ffcv.loader import Loader, OrderOption
-from ffcv.pipeline.operation import Operation
-from ffcv.transforms import (
-    RandomHorizontalFlip,
-    Cutout,
-    RandomTranslate,
-    Convert,
-    ToDevice,
-    ToTensor,
-    ToTorchImage,
-)
-from ffcv.transforms.common import Squeeze
-from ffcv.writer import DatasetWriter
-
-
-client_loaders = []
-
-
 class Client:
     def __init__(
         self,
@@ -171,29 +140,26 @@ class Client:
         test_batch_size,
         save_dir,
     ):
+        train_writeset = ClientWriteDataset(train_data)
+        test_writeset = ClientWriteDataset(test_data)
         temp_path = os.path.join(save_dir, "tmp_storage")
         os.makedirs(temp_path, exist_ok=True)
-
         train_beton_path = os.path.join(
             temp_path, "train_client_{}.beton".format(client_id)
         )
         test_beton_path = os.path.join(
             temp_path, "test_client_{}.beton".format(client_id)
         )
-        if not (os.path.exists(train_beton_path) and os.path.exists(train_beton_path)):
-
-            train_writeset = ClientWriteDataset(train_data)
-            test_writeset = ClientWriteDataset(test_data)
-            train_writer = DatasetWriter(
-                train_beton_path,
-                {"image": RGBImageField(), "label": IntField()},
-            )
-            test_writer = DatasetWriter(
-                test_beton_path,
-                {"image": RGBImageField(), "label": IntField()},
-            )
-            train_writer.from_indexed_dataset(train_writeset)
-            test_writer.from_indexed_dataset(test_writeset)
+        train_writer = DatasetWriter(
+            train_beton_path,
+            {"image": RGBImageField(), "label": IntField()},
+        )
+        test_writer = DatasetWriter(
+            test_beton_path,
+            {"image": RGBImageField(), "label": IntField()},
+        )
+        train_writer.from_indexed_dataset(train_writeset)
+        test_writer.from_indexed_dataset(test_writeset)
 
         self.client_id = client_id
         self.trainloader = Loader(
@@ -238,100 +204,6 @@ class Client:
         return (data, labels)
 
 
-config["train_batch"] = 100
-config["test_batch"] = 512
-CIFAR_MEAN = [0.4914, 0.4822, 0.4465]
-CIFAR_STD = [0.2023, 0.1994, 0.2010]
-
-for i in range(config["num_clusters"]):
-    for j in range(config["num_clients_per_cluster"]):
-        idx = i * config["num_clients_per_cluster"] + j
-
-        label_pipeline: List[Operation] = [
-            IntDecoder(),
-            ToTensor(),
-            ToDevice("cuda:0"),
-            Squeeze(),
-        ]
-        train_image_pipeline: List[Operation] = [
-            SimpleRGBImageDecoder(),
-            RandomHorizontalFlip(),
-            RandomTranslate(padding=2),
-            Cutout(8, tuple(map(int, CIFAR_MEAN))),
-            ToTensor(),
-            ToDevice("cuda:0", non_blocking=True),
-            ToTorchImage(),
-            Convert(torch.float16),
-            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
-        ]
-
-        test_image_pipeline: List[Operation] = [
-            SimpleRGBImageDecoder(),
-            ToTensor(),
-            ToDevice("cuda:0", non_blocking=True),
-            ToTorchImage(),
-            Convert(torch.float16),
-            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
-        ]
-
-        if i > 0:
-            train_image_pipeline.extend([transforms.RandomRotation((180, 180))])
-            test_image_pipeline.extend([transforms.RandomRotation((180, 180))])
-        client_loaders.append(
-            Client(
-                train_chunks[idx],
-                test_chunks[idx],
-                idx,
-                train_image_pipeline=train_image_pipeline,
-                test_image_pipeline=test_image_pipeline,
-                label_pipeline=label_pipeline,
-                train_batch_size=config["train_batch"],
-                test_batch_size=config["test_batch"],
-                save_dir=config["results_dir"],
-            )
-        )
-
-from torchvision.models import resnet18
-
-
-class ResNet(nn.Module):
-    def __init__(self):
-        super(ResNet, self).__init__()
-        self.model = resnet18(pretrained=True)
-        for param in self.model.parameters():
-            param.requires_grad = False
-        in_features = self.model.fc.in_features
-        self.model.fc = nn.Linear(in_features, 10)
-
-    def forward(self, input):
-        x = self.model(input)
-        return x
-
-
-class Net(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        layer_list = [self.conv1, self.conv2, self.pool, self.fc1, self.fc2]
-        for layer in layer_list:
-            for param in layer.parameters():
-                param.requires_grad = False
-        self.fc3 = nn.Linear(84, 10)
-
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = torch.flatten(x, 1)  # flatten all dimensions except batch
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
 class Mul(nn.Module):
     def __init__(self, weight):
         super(Mul, self).__init__()
@@ -371,9 +243,6 @@ def conv_bn(channels_in, channels_out, kernel_size=3, stride=1, padding=1, group
     )
 
 
-# NUM_CLASSES = 10
-
-
 class ResNet9(nn.Module):
     def __init__(self, NUM_CLASSES=10):
         super(ResNet9, self).__init__()
@@ -395,13 +264,6 @@ class ResNet9(nn.Module):
         return self.model(x)
 
 
-# model = model.to(memory_format=torch.channels_last).cuda()
-
-
-from torch.cuda.amp import GradScaler, autocast
-from torch.optim import SGD, lr_scheduler
-
-
 def calc_acc(model, device, client_data, train):
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
@@ -414,9 +276,6 @@ def calc_acc(model, device, client_data, train):
                 total_num += ims.shape[0]
 
     return total_correct * 100.0 / total_num
-
-
-import time
 
 
 class BaseTrainer(ABC):
@@ -528,41 +387,9 @@ class ClientTrainer(BaseTrainer):
         return acc
 
 
-MODEL_LIST = {"resnet": ResNet, "cnn": Net, "resnet9": ResNet9}
+MODEL_LIST = {"resnet9": ResNet9}
 OPTIMIZER_LIST = {"sgd": optim.SGD, "adam": optim.Adam}
 LOSSES = {"cross_entropy": nn.CrossEntropyLoss(label_smoothing=0.1)}
-# config["save_dir"] = os.path.join("./results")
-config["iterations"] = 2400
-config["optimizer_params"] = {"lr": 0.5, "momentum": 0.9, "weight_decay": 5e-4}
-config["save_freq"] = 2
-config["print_freq"] = 20
-config["model"] = "resnet9"
-config["optimizer"] = "sgd"
-config["loss_func"] = "cross_entropy"
-# config["model_params"] = {"num_channels": 1 , "num_classes"  : 62}
-config["model_params"] = {}
-config["device"] = torch.device("cuda:0")
-import pickle
-
-client_trainers = [
-    ClientTrainer(
-        config, os.path.join(config["results_dir"], "init", "node_{}".format(i)), i
-    )
-    for i in range(config["num_clients"])
-]
-
-for i in tqdm(range(config["num_clients"])):
-    client_trainers[i].load_model_weights()
-
-# for i in tqdm(range(config["num_clients"])):
-#     client_trainers[i].train(client_loaders[i])
-
-
-import networkx as nx
-
-G = nx.Graph()
-G.add_nodes_from(range(config["num_clients"]))
-import itertools
 
 
 def calc_loss(model, client_data, train):
@@ -586,15 +413,11 @@ def calc_loss(model, client_data, train):
 def cross_entropy_metric(trainer_1, trainer_2, client_1, client_2):
     trainer_1_client_2 = 0.0
     for client in client_2:
-        trainer_1_client_2 += calc_loss(
-            trainer_1.model, client, train=True
-        )
+        trainer_1_client_2 += calc_loss(trainer_1.model, client, train=True)
         trainer_1_client_2 = trainer_1_client_2 / len(client_2)
         trainer_2_client_1 = 0.0
         for client in client_1:
-            trainer_2_client_1 += calc_loss(
-                trainer_2.model, client, train=True
-            )
+            trainer_2_client_1 += calc_loss(trainer_2.model, client, train=True)
         trainer_2_client_1 = trainer_2_client_1 / len(client_1)
         return (trainer_1_client_2 + trainer_2_client_1) / 2
 
@@ -606,6 +429,132 @@ def model_weights_diff(w_1, w_2):
         if w_1[key].dtype == torch.float32:
             norm_sq += (w_1[key] - w_2[key]).norm() ** 2
     return np.sqrt(norm_sq)
+
+
+def main(args):
+
+    config = {}
+    config["seed"] = args.seed
+    seed = config["seed"]
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    # Torch RNG
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # Python RNG
+    np.random.seed(seed)
+    random.seed(seed)
+
+    config["participation_ratio"] = 0.5
+    config["total_num_clients_per_cluster"] = 16
+    config["num_clients_per_cluster"] = int(
+        config["participation_ratio"] * config["total_num_clients_per_cluster"]
+    )
+    config["num_clusters"] = 2
+    config["num_clients"] = config["num_clients_per_cluster"] * config["num_clusters"]
+    config["dataset"] = "cifar10"
+    config["dataset_dir"] = "./experiments/dataset"
+    config["results_dir"] = "./experiments/results"
+    config["results_dir"] = os.path.join(
+        config["results_dir"], config["dataset"], "seed_{}".format(seed)
+    )
+
+    train_dataset = DATASET_LIB[config["dataset"]](
+        root=config["dataset_dir"], download=True, train=True
+    )
+    test_dataset = DATASET_LIB[config["dataset"]](
+        root=config["dataset_dir"], download=True, train=False
+    )
+
+    os.makedirs(config["results_dir"], exist_ok=True)
+
+    train_chunks, test_chunks = make_client_datasets(config)
+
+    client_loaders = []
+
+    config["train_batch"] = 100
+    config["test_batch"] = 512
+    CIFAR_MEAN = [0.4914, 0.4822, 0.4465]
+    CIFAR_STD = [0.2023, 0.1994, 0.2010]
+
+    for i in range(config["num_clusters"]):
+        for j in range(config["num_clients_per_cluster"]):
+            idx = i * config["num_clients_per_cluster"] + j
+
+            label_pipeline: List[Operation] = [
+                IntDecoder(),
+                ToTensor(),
+                ToDevice("cuda:0"),
+                Squeeze(),
+            ]
+            train_image_pipeline: List[Operation] = [
+                SimpleRGBImageDecoder(),
+                RandomHorizontalFlip(),
+                RandomTranslate(padding=2),
+                Cutout(8, tuple(map(int, CIFAR_MEAN))),
+                ToTensor(),
+                ToDevice("cuda:0", non_blocking=True),
+                ToTorchImage(),
+                Convert(torch.float16),
+                transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+            ]
+
+            test_image_pipeline: List[Operation] = [
+                SimpleRGBImageDecoder(),
+                ToTensor(),
+                ToDevice("cuda:0", non_blocking=True),
+                ToTorchImage(),
+                Convert(torch.float16),
+                transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+            ]
+
+            if i > 0:
+                train_image_pipeline.extend([transforms.RandomRotation((180, 180))])
+                test_image_pipeline.extend([transforms.RandomRotation((180, 180))])
+
+            client_loaders.append(
+                Client(
+                    train_chunks[idx],
+                    test_chunks[idx],
+                    idx,
+                    train_image_pipeline=train_image_pipeline,
+                    test_image_pipeline=test_image_pipeline,
+                    label_pipeline=label_pipeline,
+                    train_batch_size=config["train_batch"],
+                    test_batch_size=config["test_batch"],
+                    save_dir=config["results_dir"],
+                )
+            )
+
+    # model = model.to(memory_format=torch.channels_last).cuda()
+
+    # config["save_dir"] = os.path.join("./results")
+    config["iterations"] = 2400
+    config["optimizer_params"] = {"lr": 0.5, "momentum": 0.9, "weight_decay": 5e-4}
+    config["save_freq"] = 2
+    config["print_freq"] = 20
+    config["model"] = "resnet9"
+    config["optimizer"] = "sgd"
+    config["loss_func"] = "cross_entropy"
+    # config["model_params"] = {"num_channels": 1 , "num_classes"  : 62}
+    config["model_params"] = {}
+    config["device"] = torch.device("cuda:0")
+
+    client_trainers = [
+        ClientTrainer(
+            config, os.path.join(config["results_dir"], "init", "node_{}".format(i)), i
+        )
+        for i in range(config["num_clients"])
+    ]
+
+    # for i in tqdm(range(config["num_clients"])):
+    #    client_trainers[i].load_model_weights()
+
+    for i in tqdm(range(config["num_clients"])):
+        client_trainers[i].train(client_loaders[i])
+
+    G = nx.Graph()
+    G.add_nodes_from(range(config["num_clients"]))
 
 
 wt = client_trainers[0].model.state_dict()
@@ -632,9 +581,6 @@ for pair in all_pairs:
 #     arr.append(norm_diff)
 # #thresh = torch.mean(torch.tensor(arr))
 # thresh = arr[torch.tensor(arr).argsort()[int(0.3*len(arr))-1]]
-import ipdb
-
-ipdb.set_trace()
 # thresh = sorted(all_pairs.values())[int(0.3 * len(all_pairs))]
 thresh = 0.012
 
@@ -951,3 +897,8 @@ for refine_step in tqdm(range(config["refine_steps"])):
 
 # global_trainer = GlobalTrainer(config, os.path.join(config["results_dir"], "global"))
 # global_trainer.train(client_loaders)
+
+
+if __name__ == "__main__":
+    args = parser.parse_args()
+    main(args)

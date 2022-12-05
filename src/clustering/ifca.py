@@ -21,7 +21,9 @@ class IFCA(ClusterFLAlgo):
             )
         self.init_cluster_map()
         self.cluster_trainers = {}
+        self.config["path"]["results"] = os.path.join(self.config["path"]["results"], str(self.config["num_clusters"]))
         self.cluster_path = os.path.join(self.config["path"]["results"], "clusters")
+
 
         for cluster_id in range(self.config["num_clusters"]):
             cluster_trainer = ClusterTrainer(self.config, cluster_id)
