@@ -1,24 +1,24 @@
-model: 
+client_threshold: 0.0837654398895699
+freq:
+  metrics: 30
+  print: 60
+  save: 150
+gamma_max: 0.38970665231958646
+iterations: 2400
+local_iter: 400
+model:
   name: stacked_lstm
   params:
-    seq_len : 80
     emb_dim: 8
     n_hidden: 100
-    num_classes : 80
     n_layers: 2
-freq:
-  metrics: 5
-  save: 150
-  print: 100
-num_clients_per_round: 3
-local_iter: 5
-rounds: 2
-num_clusters : 3
+    num_classes: 80
+    seq_len: 80
+num_clients_per_round: 10
+num_clusters: 1
 optimizer:
   name: sgd
   params:
-    lr: 0.003
-    momentum: 0.9
-stop_threshold : 0.5
-client_threshold : 0.6
-gamma_max : 0.4
+    lr: 0.8
+rounds: 6
+stop_threshold: 0.07850166097998786

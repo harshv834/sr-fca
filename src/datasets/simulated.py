@@ -65,7 +65,7 @@ def apply_client_het(train_chunks, test_chunks, transformation, num_clusters):
                 )
 
     elif transformation == "rot":
-        return train_chunks, test_chunks       
+        return train_chunks, test_chunks
         # assert num_clusters in [2, 4], "Currently support only 2 or 4 rotated clusters"
         # for i in range(num_clients):
         #     theta = int(360 * (i % num_clusters) / num_clusters)

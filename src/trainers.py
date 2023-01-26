@@ -23,6 +23,7 @@ from functools import partialmethod
 
 
 from torchvision.models import efficientnet_b7, EfficientNet_B7_Weights, resnet18
+
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
@@ -39,10 +40,10 @@ class BaseTrainer(ABC):
             num_ftrs = self.model.fc.in_features
             self.model.fc = nn.Linear(num_ftrs, num_classes)
             # children = list(self.model.children())
-            # self.model = nn.Sequential(*children[:-1], 
+            # self.model = nn.Sequential(*children[:-1],
             #               nn.Sequential(nn.Dropout(p=0.5, inplace=True),
             #                             nn.Linear(list(children[-1].children())[-1].in_features, num_classes)))
-            
+
         else:
             model = MODEL_DICT[self.config["model"]["name"]]
             if "params" in self.config["model"].keys():
@@ -83,6 +84,7 @@ class BaseTrainer(ABC):
         model_path = os.path.join(self.save_dir, "model.pth")
         if os.path.exists(model_path):
             self.model.load_state_dict(torch.load(model_path))
+            self.model.eval()
         else:
             raise ValueError("No model present at path : {}".format())
         self.model.eval()
@@ -206,7 +208,11 @@ class ClientTrainer(BaseTrainer):
         else:
             metrics = None
         optimizer = get_optimizer(self.model.parameters(), self.config)
-        if self.config["dataset"]["name"] in ["rot_cifar10", "shakespeare", "rot_cifar10_ftrs"]:
+        if self.config["dataset"]["name"] in [
+            "rot_cifar10",
+            "shakespeare",
+            "rot_cifar10_ftrs",
+        ]:
             scheduler = get_lr_scheduler(self.config, optimizer, local_iter, round_id)
             scaler = GradScaler()
         if self.config["dataset"]["name"].startswith("rot_cifar10"):
@@ -215,7 +221,10 @@ class ClientTrainer(BaseTrainer):
         if self.lstm_flag:
             batch_size, hidden = None, None
         # flag = True
-        for iteration in tqdm(range(local_iter), disable= self.mode == "fed"):
+        # import ipdb
+
+        # ipdb.set_trace()
+        for iteration in tqdm(range(local_iter), disable=self.mode == "fed"):
             t0 = time.time()
             # if self.config["dataset"]["name"] == "rot_cifar10_ftrs":
             #     if self.mode == "solo" and flag:
@@ -237,7 +246,11 @@ class ClientTrainer(BaseTrainer):
             if self.lstm_flag:
                 hidden = (hidden[0].to(self.device), hidden[1].to(self.device))
 
-            if self.config["dataset"]["name"] in ["rot_cifar10", "shakespeare", "rot_cifar10"]:
+            if self.config["dataset"]["name"] in [
+                "rot_cifar10",
+                "shakespeare",
+                "rot_cifar10",
+            ]:
                 with autocast():
                     if self.lstm_flag:
                         out, hidden = self.model(X, hidden)
@@ -333,6 +346,7 @@ class ClusterTrainer(BaseTrainer):
             last_round = rounds - 1
             first_round = 0
 
+        # import ipdb;ipdb.set_trace()
         if self.config["dataset"]["name"] == "rot_cifar10":
             self.model = self.model.to(memory_format=torch.channels_last)
         for round_id in tqdm(
@@ -386,13 +400,13 @@ class ClusterTrainer(BaseTrainer):
             t1 = time.time()
             if (
                 round_id % self.config["freq"]["save"] == 0
-                or round_id == last_round - 1
+                or round_id == last_round
             ):
                 self.save_model_weights()
                 self.save_metrics()
             if (
                 round_id % self.config["freq"]["print"] == 0
-                or round_id == last_round - 1
+                or round_id == last_round
             ):
                 print(
                     "Round Id : {} \n , Metrics : {}, Time taken : {}\n".format(

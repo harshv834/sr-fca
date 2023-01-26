@@ -1,0 +1,15 @@
+num_clusters: 4
+model: 
+  name: simplecnn
+freq:
+  metrics: 30
+  save: 150
+  print: 60
+num_clients_per_round: 10
+local_iter: 5
+rounds: 2
+iterations: 10
+optimizer:
+  name: sgd
+  params:
+    lr: 0.04

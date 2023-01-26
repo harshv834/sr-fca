@@ -4,8 +4,7 @@ from math import ceil
 from time import time
 
 import numpy as np
-import torch
-from tqdm import tqdm
+
 
 from src.clustering.base import ClusterFLAlgo
 from src.trainers import ClusterTrainer
@@ -16,6 +15,7 @@ from src.utils import (
     wt_dict_dot,
     wt_dict_norm,
 )
+import torch
 
 
 class CFL(ClusterFLAlgo):
@@ -26,12 +26,14 @@ class CFL(ClusterFLAlgo):
                 self.config["iterations"] / self.config["local_iter"]
             )
         self.cluster_path = os.path.join(self.config["path"]["results"], "clusters")
-        self.cluster_map = {0: range(self.config["num_clients"])}
+        self.cluster_map = {}
         self.cluster_trainers = {}
+        self.cluster_metrics = {}
+        self.cluster_idx_to_train = []
 
     def cfl_single_node(self, client_dict, cluster_id):
-        if len(self.cluster_trainers.keys()) == self.config["num_clusters"]:
-            return
+
+        ## Train a model for the cluster
         cluster_trainer = ClusterTrainer(
             self.config, cluster_id, stop_threshold=self.config["stop_threshold"]
         )
@@ -46,40 +48,69 @@ class CFL(ClusterFLAlgo):
             rounds=self.config["rounds"],
         )
         self.cluster_trainers[cluster_id] = cluster_trainer
-        import ipdb
 
-        ipdb.set_trace()
-        if len(self.cluster_map[cluster_id]) == 1:
+        ## Split cluster into two parts
+        if (
+            len(self.cluster_map[cluster_id]) == 1
+            or len(self.cluster_map) == self.config["num_clusters"]
+        ):
             return
         else:
+            ## Compute alpha for every client pair in cluster
             alpha_mat, max_loss_client = self.compute_alpha_mat(cluster_id)
             if np.isnan(alpha_mat).any() or np.isinf(alpha_mat).any():
                 print(
                     "Nan or inf occurred in alpha for cluster : {}".format(cluster_id)
                 )
+            ## Obtain optimal bipartitioning to maximize
             partitions = self.optimal_bipartitioning(cluster_id, alpha_mat)
 
-            alpha_max_cross = compute_alpha_max(alpha_mat, partitions)
+            ## Obtain max alpha between two partitions
+            alpha_max_cross = compute_alpha_max(
+                alpha_mat, partitions, self.cluster_map[cluster_id]
+            )
             if (
                 max_loss_client >= self.config["client_threshold"]
                 and np.sqrt((1 - alpha_max_cross) / 2) > self.config["gamma_max"]
             ) or True:
                 _ = self.cluster_map.pop(cluster_id)
+                _ = self.cluster_trainers.pop(cluster_id)
                 for key, val in partitions.items():
                     self.cluster_map[key] = val
-                    self.cfl_single_node(client_dict, key)
+                    self.cluster_idx_to_train.append(key)
+            return
 
     def compute_alpha_mat(self, cluster_id):
+        """Compute alpha matrix which is cosine similarity of loss gradient of different clients at optima for the cluster.
+
+        Args:
+            cluster_id (_type_): _description_
+
+        Returns:
+            _type_: final alpha matric
+        """
+
+        ## Cosine similarity is 1 if the two clients are same, so start
+        ## with an identity matrix
         client_idx = self.cluster_map[cluster_id]
         alpha_mat = np.diag(np.ones(len(client_idx)))
+
+        ## Compute weight differences/loss gradient at optima for clients in given cluster
         client_wt_diff = self.cluster_trainers[cluster_id].client_wt_diff
         wt_diff_norms = {i: wt_dict_norm(client_wt_diff[i]) for i in client_idx}
-        import ipdb
-
-        ipdb.set_trace()
-        for (i, j) in itertools.combinations(client_idx, 2):
-            dot = wt_dict_dot(client_wt_diff[i], client_wt_diff[j])
-            alpha_mat[i][j] = dot / (wt_diff_norms[i] * wt_diff_norms[j])
+        for (i, j) in itertools.combinations(range(len(client_idx)), 2):
+            if (
+                wt_diff_norms[client_idx[i]] < 1e-10
+                or wt_diff_norms[client_idx[j]] < 1e-10
+            ):
+                alpha_mat[i][j] = 0
+            else:
+                dot = wt_dict_dot(
+                    client_wt_diff[client_idx[i]], client_wt_diff[client_idx[j]]
+                )
+                alpha_mat[i][j] = dot / (
+                    wt_diff_norms[client_idx[i]] * wt_diff_norms[client_idx[j]]
+                )
             alpha_mat[j][i] = alpha_mat[i][j]
         max_loss_client = max(wt_diff_norms.values())
         return alpha_mat, max_loss_client
@@ -91,9 +122,6 @@ class CFL(ClusterFLAlgo):
         sorted_idx = (-1 * alpha_flat).argsort()
         C = {i: set([i]) for i in client_idx}
         cluster_list = list(C.keys())
-        import ipdb
-
-        ipdb.set_trace()
         for i in range(num_clients**2):
             i_1 = client_idx[sorted_idx[i] // num_clients]
             i_2 = client_idx[sorted_idx[i] % num_clients]
@@ -112,20 +140,48 @@ class CFL(ClusterFLAlgo):
 
             C = {j: C[j] for j in cluster_list}
             if len(cluster_list) == 2:
-                import ipdb; ipdb.set_trace()
-                partition_1_id = cluster_id * 2
-                partition_2_id = cluster_id * 2 + 1
+                partition_1_id = (cluster_id + 1) * 2
+                partition_2_id = (cluster_id + 1) * 2 + 1
                 return {
                     partition_1_id: [client_id for client_id in C[cluster_list[0]]],
-                    partition_2_id: [client_id for client_id in C[cluster_list[0]]],
+                    partition_2_id: [client_id for client_id in C[cluster_list[1]]],
                 }
 
     def cluster(self, experiment):
+        """Main method to create clusters of clients
+
+        Args:
+            experiment (dict): Dict of client data used for the experiment
+
+        Raises:
+            ValueError: When Nan or inf appears in metrics
+
+        Returns:
+            dict: Metrics of trained cluster federated learning 
+        """
+        ### Initialize the client dict and put all clients inside the first cluster which has cluster_id 0
         self.config["time"]["tcluster"] = time()
+
         client_dict = experiment.client_dict
         init_cluster_id = 0
-        self.cluster_metrics = {}
-        self.cfl_single_node(client_dict, init_cluster_id)
+        self.cluster_map = {init_cluster_id: list(range(self.config["num_clients"]))}
+
+        ## Add this cluster_id to a FIFO queue which contains cluster_idx to train next
+        self.cluster_idx_to_train.append(init_cluster_id)
+
+        ## While required number of clusters haven't been trained, perform CFL on a new cluster id
+        while len(self.cluster_trainers.keys()) < self.config["num_clusters"]:
+            ## Put cluster_idx to train in a queue and pop the queue and train each cluster.
+            if len(self.cluster_idx_to_train) > 0:
+                cluster_idx_to_train = self.cluster_idx_to_train.pop(0)
+                client_dict_to_train = {
+                    client_idx: client_dict[client_idx]
+                    for client_idx in self.cluster_map[cluster_idx_to_train]
+                }
+                self.cfl_single_node(client_dict_to_train, cluster_idx_to_train)
+            else:
+                break
+        ## Among the final clusters which remain,
         self.metrics = []
         for cluster_id in self.cluster_map.keys():
             self.cluster_trainers[cluster_id].client_idx = self.cluster_map[cluster_id]
@@ -134,4 +190,6 @@ class CFL(ClusterFLAlgo):
                 raise ValueError("Nan or inf occurred in metrics")
             self.metrics.append((len(self.cluster_map[cluster_id]), metrics))
         self.metrics = avg_metrics(self.metrics)
+        torch.save(self.metrics, os.path.join(self.config["path"]["results"], "metrics.pth"))
+        torch.save(self.cluster_map, os.path.join(self.config["path"]["results"], "cluster_map.pth"))
         return self.metrics

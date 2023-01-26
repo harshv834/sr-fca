@@ -63,17 +63,17 @@ algo = ConcurrencyLimiter(searcher, max_concurrent=4)
 ray.init(
     address="local",
     log_to_driver=False,
-    num_cpus=10,
+    num_cpus=16,
     num_gpus=torch.cuda.device_count(),
 )
 tuner = tune.Tuner(
     with_resources(
         with_parameters(objective, fldataset=fldataset),
-        resources={"cpu": 3, "gpu": 1},
+        resources={"cpu": 5, "gpu": 1},
     ),
     tune_config=tune.TuneConfig(
         search_alg=algo,
-        num_samples=30,
+        num_samples=args["num_samples"],
     ),
     run_config=RunConfig(
         name=fldataset.config["clustering"] + "_" + fldataset.config["dataset"]["name"],
@@ -86,7 +86,7 @@ results = tuner.fit()
 try:
     best_result = results.get_best_result(metric="test_metric", mode=mode)
     best_result_config = best_result.config
-    best_result_config = tune_config_update(best_result_config)
+    # best_result_config = tune_config_update(best_result_config)
     print("Best_config", best_result_config)
 
     with open(best_hp_path, "w") as f:

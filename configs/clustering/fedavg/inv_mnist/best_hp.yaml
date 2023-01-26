@@ -15,7 +15,7 @@ iterations: 250
 optimizer:
   name: adam
   params:
-    lr: 0.002
+    lr: 0.0002
 
 
 

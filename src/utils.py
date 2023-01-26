@@ -34,19 +34,35 @@ def args_getter():
             "rot_cifar10",
             "shakespeare",
             "femnist",
-            "rot_cifar10_ftrs"
+            "rot_cifar10_ftrs",
         ],
         help="Dataset to use for this run",
     )
     parser.add_argument(
         "-c",
         "--clustering",
-        choices=["sr_fca", "ifca", "cfl", "mocha", "fedavg", "all"],
+        choices=["sr_fca", "ifca", "cfl", "oneshot_kmeans", "fedavg", "all"],
         # required=True,
         default="sr_fca",
         help="Clustering algo to use for this run, if all is specified run all algorithms and compare",
     )
-    parser.add_argument("--num_clusters", type=int, required=False, default = 3, help= "Number of clusters for IFCA")
+    parser.add_argument(
+        "--num_clusters",
+        type=int,
+        required=False,
+        help="Number of clusters for IFCA/CFL/Oneshot_KMeans",
+    )
+    parser.add_argument(
+        "--num_samples",
+        type=int,
+        required=False,
+        help="Number of samples for tuning",
+    )
+
+    parser.add_argument(
+        "--from_init",
+        action=argparse.BooleanOptionalAction  
+    )
     # parser.add_argument(
     #     "--dist-metric",
     #     choices=["euclidean", "cross_entropy"],
@@ -56,6 +72,7 @@ def args_getter():
     # )
     args = parser.parse_args()
     args = vars(args)
+    args = {key: val for key, val in args.items() if val is not None}
     return args
     # ## This is set by hyperparameter config. Do we need a single config file with everything
     # parser.add_argument("-b", "--base-optimizer", choices=["adam", "sgd", "arg"])
@@ -87,7 +104,7 @@ def read_algo_config(data_config, tune=False):
             except yaml.YAMLError as err:
                 print(err)
     ## Works only on python >=3.9.0
-    
+
     config = config | data_config
 
     if config["dataset"]["name"] == "synthetic":
@@ -156,9 +173,7 @@ def get_lr_scheduler(config, optimizer, local_iter, round_id):
     cond_1 = config["dataset"]["name"] == "rot_cifar10"
     cond_2 = config["clustering"] == "sr_fca"
     if cond_1:
-        iters_per_epoch = 50000 // int(
-            config["batch"]["train"]
-        )
+        iters_per_epoch = 50000 // int(config["batch"]["train"])
         if cond_2:
             epochs = config["init"]["iterations"] // iters_per_epoch
         else:
@@ -170,11 +185,13 @@ def get_lr_scheduler(config, optimizer, local_iter, round_id):
         )
         if round_id is not None:
             if type(round_id) == tuple:
-                first_iter = round_id[0] * local_iter 
-                last_iter = min((round_id[1] + 1) * local_iter+1, lr_schedule.shape[0]) 
+                first_iter = round_id[0] * local_iter
+                last_iter = min(
+                    (round_id[1] + 1) * local_iter + 1, lr_schedule.shape[0]
+                )
             else:
                 first_iter = round_id * local_iter
-                last_iter = min((round_id + 1) * local_iter+1, lr_schedule.shape[0]) 
+                last_iter = min((round_id + 1) * local_iter + 1, lr_schedule.shape[0])
             lr_schedule = lr_schedule[first_iter:last_iter]
     # elif config["dataset"]["name"] == "rot_cifar10_ftrs":
     #     return optim.lr_scheduler.ReduceLROnPlateau(optimizer,patience=2)
@@ -337,7 +354,7 @@ def get_search_space(config):
     sys.modules["module.name"] = config_file
     spec.loader.exec_module(config_file)
     best_hp_path = os.path.join(algo_config_path, "best_hp.yaml")
-    return best_hp_path, lambda trial: config_file.get_hp_config(trial, config)
+    return best_hp_path, lambda trial: config_file.get_hp_config(trial)
 
 
 def wt_dict_diff(wt_1, wt_2):
@@ -374,10 +391,11 @@ def convert_to_cpu(val):
     return val_arr
 
 
-def compute_alpha_max(alpha_mat, partitions):
-
+def compute_alpha_max(alpha_mat, partitions, client_idx):
     keys = list(partitions.keys())
-    return alpha_mat[partitions[keys[0]], :][:, partitions[keys[1]]].max()
+    return alpha_mat[[client_idx.index(el) for el in partitions[keys[0]]], :][
+        :, [client_idx.index(el) for el in partitions[keys[1]]]
+    ].max()
 
 
 def read_dir(data_dir):
@@ -475,3 +493,52 @@ def set_weights(name, model, path):
                     param.requires_grad = child_id >= len(children) - 2
         model.model = nn.Sequential(*children)
     return model
+
+
+def vectorize_model_wts(model):
+    """Flatten all model weights into single vector
+
+    Args:
+        model (nn.Module): Model whose weights need to be flattened
+
+    Returns:
+        np.ndarray: 1D vector of flattened model weigts.
+    """
+    model_wts = model.state_dict()
+    wt_list = [
+        wt.numpy().flatten()
+        for wt in list(model_wts.values())
+    ]
+    wt_list = [wt for wt in wt_list if np.issubdtype(wt.dtype, np.integer) or np.issubdtype(wt.dtype, np.floating)]
+    vectorized_wts = np.hstack(wt_list)
+    return vectorized_wts
+
+
+def unvectorize_model_wts(flat_wts, model):
+    """Convert flattened model weights to an ordered state dict of the model
+
+    Args:
+        flat_wts (np.ndarray): 1D array with the flattened weights
+        model (torch.nn.Module): Model whose state dict format we need to adhere to
+
+    Returns:
+        OrderedDict: Format flat_wts according to state dict of model
+    """
+    model_wts = model.state_dict()
+    model_wts_to_update = OrderedDict(
+        {
+            key: val
+            for key, val in model_wts.items()
+            if np.issubdtype(val.numpy().dtype, np.integer) or np.issubdtype(val.numpy().dtype, np.floating)
+        }
+    )
+    flat_tensor_len = [val.flatten().shape[0] for val in model_wts_to_update.values()]
+    start_count = 0
+    for i, (key, val) in enumerate(model_wts_to_update.items()):
+        end_count = start_count + flat_tensor_len[i]
+        flat_tensor = flat_wts[start_count:end_count]
+        model_wts_to_update[key] = torch.tensor(
+            flat_tensor.reshape(val.shape), dtype=val.dtype
+        )
+    model_wts_to_update = model_wts | model_wts_to_update
+    return model_wts_to_update

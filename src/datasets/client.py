@@ -7,27 +7,27 @@ import numpy as np
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from ffcv.fields import FloatField, IntField, NDArrayField, RGBImageField
-from ffcv.fields.decoders import (
-    FloatDecoder,
-    IntDecoder,
-    NDArrayDecoder,
-    SimpleRGBImageDecoder,
-)
-from ffcv.loader import Loader, OrderOption
-from ffcv.pipeline.operation import Operation
-from ffcv.transforms import (
-    Convert,
-    Cutout,
-    RandomHorizontalFlip,
-    RandomTranslate,
-    ToDevice,
-    ToTensor,
-    ToTorchImage,
-    RandomResizedCrop
-)
-from ffcv.transforms.common import Squeeze
-from ffcv.writer import DatasetWriter
+# from ffcv.fields import FloatField, IntField, NDArrayField, RGBImageField
+# from ffcv.fields.decoders import (
+#     FloatDecoder,
+#     IntDecoder,
+#     NDArrayDecoder,
+#     SimpleRGBImageDecoder,
+# )
+# from ffcv.loader import Loader, OrderOption
+# from ffcv.pipeline.operation import Operation
+# from ffcv.transforms import (
+#     Convert,
+#     Cutout,
+#     RandomHorizontalFlip,
+#     RandomTranslate,
+#     ToDevice,
+#     ToTensor,
+#     ToTorchImage,
+#     RandomResizedCrop
+# )
+# from ffcv.transforms.common import Squeeze
+# from ffcv.writer import DatasetWriter
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 
 from src.utils import get_device
@@ -57,12 +57,12 @@ class ClientWriteDataset(Dataset):
         if self.transform is not None:
             idx_data = self.transform(idx_data).float()
         
-        if self.config["dataset"]["name"] == "rot_mnist":
-            idx_data = idx_data.squeeze().flatten()
+        if self.config["dataset"]["name"] in ["rot_mnist", "inv_mnist"]:
+            idx_data = idx_data.float().squeeze().flatten()
         return idx_data, idx_target
 
     def format_dataset_for_write(self):
-        if self.config["dataset"]["name"] in ["mnist", "femnist"]:
+        if self.config["dataset"]["name"] in ["mnist","femnist" ]:
             self.data = self.data.reshape(-1, self.config["dataset"]["input_size"])
             if type(self.data) == torch.Tensor:
                 self.data = self.data.float().numpy()
@@ -99,63 +99,63 @@ class Client:
         # if config["dataset"]["name"] == "rot_cifar10_ftrs":
         #     train_writeset = get_resnet_ftrs(train_writeset, config, client_id)
         #     test_writeset = get_resnet_ftrs(test_writeset, config, client_id)
-        if config["dataset"]["name"].startswith("rot_cifar10"):
-            temp_path = os.path.join(config["path"]["data"], "tmp_storage")
-            os.makedirs(temp_path, exist_ok=True)
-            train_beton_path = os.path.join(
-                temp_path, "train_client_{}.beton".format(client_id)
-            )
-            test_beton_path = os.path.join(
-                temp_path, "test_client_{}.beton".format(client_id)
-            )
-            (
-                writer_pipeline,
-                train_loader_pipeline,
-                test_loader_pipeline,
-            ) = get_pipelines(config, self.client_id)
-            ## Issues with C code and rewrites when this is not always done.
-            if not os.path.exists(train_beton_path) or not os.path.exists(
-                test_beton_path
-            ):
+        # if config["dataset"]["name"].startswith("rot_cifar10"):
+        #     temp_path = os.path.join(config["path"]["data"], "tmp_storage")
+        #     os.makedirs(temp_path, exist_ok=True)
+        #     train_beton_path = os.path.join(
+        #         temp_path, "train_client_{}.beton".format(client_id)
+        #     )
+        #     test_beton_path = os.path.join(
+        #         temp_path, "test_client_{}.beton".format(client_id)
+        #     )
+        #     (
+        #         writer_pipeline,
+        #         train_loader_pipeline,
+        #         test_loader_pipeline,
+        #     ) = get_pipelines(config, self.client_id)
+        #     ## Issues with C code and rewrites when this is not always done.
+        #     if not os.path.exists(train_beton_path) or not os.path.exists(
+        #         test_beton_path
+        #     ):
 
-                train_writer = DatasetWriter(
-                    train_beton_path, writer_pipeline, num_workers=0
-                )
-                test_writer = DatasetWriter(
-                    test_beton_path, writer_pipeline, num_workers=0
-                )
-                train_writer.from_indexed_dataset(train_writeset)
-                test_writer.from_indexed_dataset(test_writeset)
+        #         train_writer = DatasetWriter(
+        #             train_beton_path, writer_pipeline, num_workers=0
+        #         )
+        #         test_writer = DatasetWriter(
+        #             test_beton_path, writer_pipeline, num_workers=0
+        #         )
+        #         train_writer.from_indexed_dataset(train_writeset)
+        #         test_writer.from_indexed_dataset(test_writeset)
 
-            self.trainloader = Loader(
-                train_beton_path,
-                batch_size=config["batch"]["train"],
-                num_workers=8,
-                order=OrderOption.QUASI_RANDOM,
-                drop_last=False,
-                pipelines=train_loader_pipeline,
-            )
-            self.testloader = Loader(
-                test_beton_path,
-                batch_size=config["batch"]["test"],
-                num_workers=8,
-                order=OrderOption.QUASI_RANDOM,
-                drop_last=False,
-                pipelines=test_loader_pipeline,
-            )
-        else:
-            self.trainloader = DataLoader(
-                train_writeset,
-                batch_size=config["batch"]["train"],
-                shuffle=True,
-                num_workers=0,
-            )
-            self.testloader = DataLoader(
-                test_writeset,
-                batch_size=config["batch"]["test"],
-                shuffle=False,
-                num_workers=0,
-            )
+        #     self.trainloader = Loader(
+        #         train_beton_path,
+        #         batch_size=config["batch"]["train"],
+        #         num_workers=8,
+        #         order=OrderOption.QUASI_RANDOM,
+        #         drop_last=False,
+        #         pipelines=train_loader_pipeline,
+        #     )
+        #     self.testloader = Loader(
+        #         test_beton_path,
+        #         batch_size=config["batch"]["test"],
+        #         num_workers=8,
+        #         order=OrderOption.QUASI_RANDOM,
+        #         drop_last=False,
+        #         pipelines=test_loader_pipeline,
+        #     )
+        # else:
+        self.trainloader = DataLoader(
+            train_writeset,
+            batch_size=config["batch"]["train"],
+            shuffle=True,
+            num_workers=0,
+        )
+        self.testloader = DataLoader(
+            test_writeset,
+            batch_size=config["batch"]["test"],
+            shuffle=False,
+            num_workers=0,
+        )
 
         if tune:
             self.train_iterator = None

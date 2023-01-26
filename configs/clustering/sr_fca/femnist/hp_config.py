@@ -1,31 +1,37 @@
-def get_hp_config(trial, data_config):
-    dist_fraction = trial.suggest_loguniform("dist_fraction", 0.1, 0.8)
-    size_threshold = trial.suggest_int("size_threshold", 1, 10)
-    beta = trial.suggest_uniform("beta", 0.1, 0.4)
-    num_refine_steps = trial.suggest_int("num_refine_steps", 1, 4)
-    refine_local_iter = trial.suggest_int("refine_local_iter", 1, 10)
-    optimizer_name = trial.suggest_categorical("optimizer_name", ["sgd", "adam"])
-    if optimizer_name == "sgd":
-        lr = trial.suggest_loguniform("optimizer_params_lr", 1e-3, 1e-1)
-        momentum = trial.suggest_uniform("optimizer_params_momentum", 0.0, 0.9)
-        optimizer_param_dict = {"lr": lr, "momentum": momentum}
-    else:
-        lr = trial.suggest_loguniform("optimizer_params_lr", 1e-4, 1e-2)
-        optimizer_param_dict = {"lr": lr}
-    num_clients_per_round = trial.suggest_int("num_clients_per_round", 1, 10)
+def get_hp_config(trial):
+    dist_threshold = trial.suggest_float("dist_threshold", 0.026177632431516232, 0.5548499828010662)
+    size_threshold = 2
+    beta = trial.suggest_float("beta", 0, 0.4)
+    model  = {"name" : "simplecnn"}
+    local_iter = 5
+    rounds = 200
+    iterations = 1000
+    num_refine_steps= trial.suggest_int("num_refine_steps", 1, 2)
+    dist_metric = "cross_entropy"
+    num_clients_per_round = 10
+    optimizer = {"name": "sgd", "params": {"lr": 0.04}}
+    freq = {"metrics": 30, "save": 150, "print": 60}
     config = {
-        "model": {"name": "simplecnn"},
-        "dist_fraction": dist_fraction,
-        "size_threshold": size_threshold,
-        "freq": {"metrics": 30, "save": 150, "print": 100},
-        "beta": beta,
-        "init": {"iterations": 210},
-        "refine": {"local_iter": refine_local_iter},
-        "num_refine_steps": num_refine_steps,
+        "model": model,
+        "local_iter": local_iter,
         "num_clients_per_round": num_clients_per_round,
-        "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},
-        "dist_metric": "cross_entropy",
+        "freq": freq,
+        "rounds" : rounds,
+        "optimizer": optimizer,
+        "init":{
+            "iterations" : iterations
+        },
+        "refine" : {
+            "local_iter" : local_iter,
+            "rounds" : rounds
+        },
+        "beta" : beta,
+        "size_threshold" : size_threshold,
+        "dist_threshold": dist_threshold,
+        "num_refine_steps": num_refine_steps,
+        "dist_metric" : dist_metric,
     }
-    config = data_config | config
 
     return config
+
+    

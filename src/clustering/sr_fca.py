@@ -63,17 +63,28 @@ class SRFCA(ClusterFLAlgo):
 
         client_dict = experiment.client_dict
         init_path = os.path.join(self.config["path"]["results"], "init")
-        init_metrics = []
-        for i in tqdm(self.client_trainers.keys()):
-            client_save_dir = os.path.join(init_path, "client_{}".format(i))
-            self.client_trainers[i].set_save_dir(client_save_dir)
-            client_metrics = self.client_trainers[i].train(
-                client_data=client_dict[i],
-                local_iter=self.config["init"]["iterations"],
-            )
-            init_metrics.append((1, client_metrics))
-        self.init_metrics = avg_metrics(init_metrics)
-        torch.save(self.init_metrics, os.path.join(init_path, "metrics.pth"))
+
+        ## If saved models present in init then start SR_FCA from there
+        if "from_init" in self.config.keys() and self.config["from_init"]:
+            ## Get the path from init
+            for i in tqdm(self.client_trainers.keys()):
+                ## Set save directory for local models
+                self.client_trainers[i].set_save_dir(os.path.join(init_path, "client_{}".format(i)))
+                ## Load saved model weights
+                self.client_trainers[i].load_saved_weights()
+            self.init_metrics = torch.load(os.path.join(init_path, "metrics.pth"))
+        else:
+            init_metrics = []
+            for i in tqdm(self.client_trainers.keys()):
+                client_save_dir = os.path.join(init_path, "client_{}".format(i))
+                self.client_trainers[i].set_save_dir(client_save_dir)
+                client_metrics = self.client_trainers[i].train(
+                    client_data=client_dict[i],
+                    local_iter=self.config["init"]["iterations"],
+                )
+                init_metrics.append((1, client_metrics))
+            self.init_metrics = avg_metrics(init_metrics)
+            torch.save(self.init_metrics, os.path.join(init_path, "metrics.pth"))
 
         self.dist_clustering(client_dict, merge=False)
         if len(self.cluster_map.keys()) == 0:
@@ -179,7 +190,7 @@ class SRFCA(ClusterFLAlgo):
         graph = nx.Graph()
         graph.add_nodes_from(keys)
         dist_dict = {}
-        for i, j in list(itertools.combinations(keys, 2)):
+        for i, j in tqdm(list(itertools.combinations(keys, 2))):
             dist = compute_dist(
                 trainers[i],
                 trainers[j],
@@ -188,7 +199,9 @@ class SRFCA(ClusterFLAlgo):
                 self.config["dist_metric"],
             )
             dist_dict[(i, j)] = dist
-        import ipdb;ipdb.set_trace()
+        # print("Min dist",sorted(dist_dict.values())[0])
+        # print("Max dist",sorted(dist_dict.values())[-1])
+        # import ipdb;ipdb.set_trace()
         if not merge:
             if "dist_threshold" not in self.config.keys():
                 self.config["dist_threshold"] = sorted(dist_dict.values())[

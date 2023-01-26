@@ -1,22 +1,27 @@
-model: 
-  name: one_layer_lin
-dist_fraction: 0.4
-size_threshold: 2
+beta: 0.0009766801281098224
+dist_fraction: 22.657641207209398
+dist_metric: euclidean
+dist_threshold: 22.657641207209398
 freq:
-  metrics: 5
-  save: 150
-  print: 100
-num_refine_steps: 1
-beta: 0.2
-num_clients_per_round: 10
+  metrics: 30
+  print: 60
+  save: 30
 init:
   iterations: 280
+model:
+  name: one_layer_lin
+  params:
+    dimension: 1000
+    scale: 1
+num_clients_per_round: 10
+num_refine_steps: 1
+optimizer:
+  name: adam
+  params:
+    lr: 0.0020509164888599407
+optimizer_name: adam
+optimizer_params_lr: 0.0020509164888599407
 refine:
   local_iter: 5
   rounds: 56
-optimizer:
-  name: sgd
-  params:
-    lr: 0.001
-dist_metric : euclidean
-
+size_threshold: 2

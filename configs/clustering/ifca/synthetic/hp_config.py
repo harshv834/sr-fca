@@ -1,31 +1,29 @@
-def get_hp_config(trial, data_config):
-    local_iter = trial.suggest_int("local_iter", 1, 10)
+def get_hp_config(trial):
+    local_iter = 5
+    rounds = 56
+    iterations = 280
+    model = {"name" : "one_layer_lin", "params" : {"dimension": 1000, "scale":  1}}
     optimizer_name = trial.suggest_categorical("optimizer_name", ["sgd", "adam"])
     if optimizer_name == "sgd":
-        lr = trial.suggest_loguniform("optimizer_params_lr", 1e-3, 1e-1)
-        momentum = trial.suggest_uniform("optimizer_params_momentum", 0.0, 0.9)
-        optimizer_param_dict = {"lr": lr, "momentum": momentum}
+        lr = trial.suggest_loguniform("optimizer_params_lr", 1e-4, 1e-2)
+        # momentum = trial.suggest_uniform("optimizer_params_momentum", 0.0, 0.9)
+        optimizer_param_dict = {"lr": lr}
     else:
         lr = trial.suggest_loguniform("optimizer_params_lr", 1e-4, 1e-2)
         optimizer_param_dict = {"lr": lr}
-    num_clients_per_round = trial.suggest_int("num_clients_per_round", 1, 10)
-    num_clusters = trial.suggest_int("num_clusters", 2, 8)
-
+    num_clients_per_round = 10
+    num_clusters = 2
+    optimizer = {"name": optimizer_name, "params" : optimizer_param_dict}
+    freq = {"metrics": 30, "save": 30, "print": 60}
     config = {
-        "model": {
-            "name": "one_layer_lin",
-            "params": {
-                "dimension": data_config["dataset"]["dimension"],
-                "scale": data_config["dataset"]["scale"],
-            },
-        },
+        "model": model,
         "num_clusters": num_clusters,
         "local_iter": local_iter,
+        "rounds" : rounds,
+        "iterations" : iterations,
         "num_clients_per_round": num_clients_per_round,
-        "freq": {"metrics": 30, "save": 150, "print": 100},
-        "iterations": 280,
-        "optimizer": {"name": optimizer_name, "params": optimizer_param_dict},
+        "freq": freq,
+        "optimizer": optimizer,
     }
-    config = data_config | config
 
     return config

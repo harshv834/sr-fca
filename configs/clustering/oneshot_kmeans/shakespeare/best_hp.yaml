@@ -1,0 +1,22 @@
+
+model: 
+  name: stacked_lstm
+  params:
+    seq_len : 80
+    emb_dim: 8
+    n_hidden: 256
+    num_classes : 80
+    n_layers: 2
+freq:
+  metrics: 40
+  save: 150
+  print: 40
+num_clients_per_round: 10
+local_iter: 5 
+rounds: 2
+iterations: 10
+num_clusters : 3
+optimizer:
+  name: sgd
+  params:
+    lr: 0.8
