@@ -121,7 +121,6 @@ class Client(pl.LightningDataModule):
                 order=OrderOption.SEQUENTIAL,
                 drop_last=True,
                 pipelines=self.train_loader_pipeline,
-                distributed=True,
                 os_cache=True,
             )
 
@@ -143,7 +142,6 @@ class Client(pl.LightningDataModule):
                 drop_last=False,
                 os_cache=True,
                 pipelines=self.test_loader_pipeline,
-                distributed=True,
             )
 
     # TODO : Make this a loader
@@ -165,7 +163,6 @@ class Client(pl.LightningDataModule):
                 drop_last=False,
                 os_cache=True,
                 pipelines=self.test_loader_pipeline,
-                distributed=True,
             )
 
         # TODO : Add tune behaviour compatibility

@@ -1,4 +1,4 @@
-num_clients: 6
+num_clients: 50
 dataset: 
   name: rot_cifar10
   num_clusters: 2
