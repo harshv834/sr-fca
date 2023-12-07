@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-dep
+  labels:
+    k8s-app: gpu-dep
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: gpu-dep
+  template:
+    metadata:
+      labels:
+        k8s-app: gpu-dep
+    spec:
+      containers:
+      - name: gpu-container
+        image: gitlab-registry.nrp-nautilus.io/harshv834/sr_fca:latest
+        command: ["sleep", "infinity"]
+        resources:
+          limits:
+            memory: 10Gi
+            cpu: 8
+            nvidia.com/gpu: 1
+          requests:
+            memory: 10Gi
+            cpu: 8
+            nvidia.com/gpu: 1
+        volumeMounts:
+          - mountPath: /base_vol
+            name: base-vol
+          - mountPath: /dev/shm
+            name: dshm
+        env:
+          - name: GIT_USERNAME
+            valueFrom: 
+              secretKeyRef:
+                name: harshv834-github
+                key: user
+          - name: GIT_PASSWORD
+            valueFrom: 
+              secretKeyRef:
+                name: harshv834-github
+                key: password
+ 
+      volumes:
+      - name: base-vol
+        persistentVolumeClaim:
+          claimName: base-vol
+      - name: dshm
+        emptyDir:
+          medium: Memory
+        
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: topology.kubernetes.io/region
+                operator: In
+                values:
+                - us-west

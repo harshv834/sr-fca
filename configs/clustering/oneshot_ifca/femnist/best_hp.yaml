@@ -1,0 +1,17 @@
+dist_metric: cross_entropy
+dist_threshold: 0.08679986118796716
+model: 
+  name: simplecnn
+freq:
+  metrics: 30
+  save: 150
+  print: 60
+num_clients_per_round: 10
+local_iter: 5
+rounds: 200
+iterations: 1000
+optimizer:
+  name: sgd
+  params:
+    lr: 0.04
+size_threshold: 2

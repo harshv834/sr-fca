@@ -1,0 +1,18 @@
+model: 
+  name: resnet
+  num_classes: 10
+freq:
+  metrics: 30
+  save: 150
+  print: 30
+local_iter: 5
+rounds: 400
+optimizer:
+  name: sgd
+  params:
+    lr: 0.5
+    momentum: 0.9
+    weight_decay: 0.0005
+num_clients_per_round : 5
+label_smoothing: 0.1
+num_clusters: 2

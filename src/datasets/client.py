@@ -156,6 +156,8 @@ class Client:
             shuffle=False,
             num_workers=0,
         )
+        self.train_size = len(train_writeset)
+        self.test_size = len(test_writeset)
 
         if tune:
             self.train_iterator = None

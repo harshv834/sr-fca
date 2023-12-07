@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gpu-job
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: gpu-container
+        image: gitlab-registry.nrp-nautilus.io/harshv834/sr_fca:latest
+        resources:
+          limits:
+            memory: 8Gi
+            cpu : 6
+            nvidia.com/gpu: 1
+          requests:
+            memory: 8Gi
+            cpu : 6
+            nvidia.com/gpu: 1
+        volumeMounts:
+          - mountPath: /base_vol
+            name: base-vol
+          - mountPath: /dev/shm
+            name: dshm
+        env:
+        - name: GIT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: harshv834-gitlab
+              key: user
+        - name: GIT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: harshv834-gitlab
+              key: password
+        command: ["/bin/sh", "-c"]
+        args:
+          - cd /base_vol/sr_fca_main;
+          
+            python run.py --seed SEED  --dataset DATASET --clustering CLUSTERING --num_clusters NUM_CLUSTERS
+            # pip install "ray[tune]"
+            # python tuning.py --seed SEED  --dataset DATASET --clustering CLUSTERING --num_clusters NUM_CLUSTERS
+            # # git clone https://$(GIT_USERNAME):$(GIT_PASSWORD)@gitlab.nrp-nautilus.io/harshv834/nautilus-scripts;
+            # cd nautilus-scripts;
+            # sh hello_world.sh
+      restartPolicy: Never
+      volumes:
+        - name: base-vol
+          persistentVolumeClaim:
+            claimName: base-vol
+        - name: dshm
+          emptyDir:
+            medium: Memory
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: topology.kubernetes.io/region
+                operator: In
+                values:
+                - us-west
+

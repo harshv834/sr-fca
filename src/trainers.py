@@ -1,7 +1,7 @@
 import os
 import random
 from abc import ABC
-
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.cuda.amp import GradScaler, autocast
@@ -119,6 +119,19 @@ class BaseTrainer(ABC):
         return compute_metric(
             self.model, client_data, train, device=self.device, lstm_flag=self.lstm_flag
         )
+
+    def compute_loss_list(self, client_data, train=True):
+        if self.config["dataset"]["name"] == "synthetic":
+            self.loss_func = nn.MSELoss(reduction=None)
+        else:
+            label_smoothing = (
+                self.config["label_smoothing"]
+                if "label_smoothing" in self.config.keys()
+                else 0.0
+            )
+            loss_fn_no_reduce = nn.CrossEntropyLoss(label_smoothing=label_smoothing, reduction='none')
+        return compute_metric(self.model, client_data, train,loss=loss_fn_no_reduce, device=self.device, lstm_flag=self.lstm_flag, return_list= True)
+    
 
     def compute_metrics(self, client_data):
         metrics = {"train": {}, "test": {}}
@@ -329,7 +342,7 @@ class ClusterTrainer(BaseTrainer):
             diff_wt = wt_dict_diff(model_wt, self.prev_model_wt)
             return wt_dict_norm(diff_wt) < self.stop_threshold
 
-    def train(self, client_dict, client_idx, local_iter, rounds):
+    def train(self, client_dict, client_idx, local_iter, rounds, client_sampling_wts=None):
         self.num_clients = len(client_idx)
         self.client_idx = client_idx
         client_trainers = {
@@ -363,8 +376,16 @@ class ClusterTrainer(BaseTrainer):
             self.check_model_on_device()
             metrics = []
             if self.config["num_clients_per_round"] <= len(client_idx):
-                selected_clients = random.sample(
-                    client_idx, self.config["num_clients_per_round"]
+                if client_sampling_wts is None:
+                    client_sampling_wts = np.ones(len(client_idx))/len(client_idx)
+                #selected_clients = random.sample(
+                #    client_idx, self.config["num_clients_per_round"], 
+                #)
+                selected_clients =  np.random.choice(
+                        client_idx, 
+                        size=self.config["num_clients_per_round"], 
+                        replace=False, 
+                        p=client_sampling_wts
                 )
             else:
                 selected_clients = client_idx
@@ -416,6 +437,12 @@ class ClusterTrainer(BaseTrainer):
         self.model.eval()
         self.model.cpu()
         return metrics
+    def compute_loss_list(self, client_dict, train=True):
+        client_loss_list  = []
+        for i in self.client_idx:
+            self.check_model_on_device()
+            client_loss_list.append(super().compute_loss_list(client_dict[i], train=train))
+        return client_loss_list
 
     def compute_metrics(self, client_dict):
         metrics = []

@@ -41,7 +41,7 @@ def args_getter():
     parser.add_argument(
         "-c",
         "--clustering",
-        choices=["sr_fca", "ifca", "cfl", "oneshot_kmeans", "fedavg", "all"],
+        choices=["sr_fca", "ifca", "cfl", "oneshot_kmeans", "fedavg", "soft_ifca", "oneshot_ifca", "feddrift"],
         # required=True,
         default="sr_fca",
         help="Clustering algo to use for this run, if all is specified run all algorithms and compare",
@@ -119,8 +119,9 @@ LOSS_DICT = {"cross_entropy": torch.nn.CrossEntropyLoss(), "mse": torch.nn.MSELo
 
 
 def compute_metric(
-    model, client_data, train=True, loss=None, device=None, lstm_flag=False
+    model, client_data, train=True, loss=None, device=None, lstm_flag=False, return_list=False
 ):
+    
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
 
@@ -130,7 +131,10 @@ def compute_metric(
     if lstm_flag:
         batch_size, hidden = None, None
     with torch.no_grad():
-        total, total_num = 0.0, 0.0
+        if return_list:
+            total_list = []
+        else:
+            total, total_num = 0.0, 0.0
         for X, Y in loader:
             if lstm_flag:
                 if batch_size is None or X.shape[0] != batch_size:
@@ -149,12 +153,21 @@ def compute_metric(
                     out = model(X)  # Test-time augmentation
 
                 if loss is not None:
-                    total += loss(out, Y).item()
+                    if return_list:
+                    ## This should copy old behavior hopefully
+                        total_list.append(loss(out, Y).detach().cpu().numpy())
+                    else:
+                        total += loss(out, Y).item()
                 else:
                     total += out.argmax(1).eq(Y).sum().cpu().item()
-                total_num += Y.shape[0]
+                if not return_list:
+                    total_num += Y.shape[0]
+    if return_list:
+        output = np.hstack(total_list)
+    else:
+        output = total/total_num
 
-    return total / total_num
+    return output
 
 
 def get_optimizer(model_parameters, config):
@@ -204,8 +217,10 @@ def get_lr_scheduler(config, optimizer, local_iter, round_id):
     return scheduler
 
 
-def avg_metrics(metrics_list):
-
+def avg_metrics(metrics_list, min_tot_count=1):
+    '''
+    min_tot_count is minimum value of tot_count
+    '''
     avg_metric_dict = {}
 
     metric_keys = metrics_list[0][1].keys()
@@ -213,6 +228,7 @@ def avg_metrics(metrics_list):
         avg_metric_dict[key] = {}
         for metric_name in metrics_list[0][1][key].keys():
             avg_metric_dict[key][metric_name] = 0.0
+    
     tot_count = 0
     for (count, metric_dict) in metrics_list:
         tot_count += count
@@ -224,7 +240,7 @@ def avg_metrics(metrics_list):
     for key in metric_keys:
         for metric_name in metrics_list[0][1][key].keys():
             avg_metric_dict[key][metric_name] = (
-                avg_metric_dict[key][metric_name] / tot_count
+                avg_metric_dict[key][metric_name] / max(tot_count, min_tot_count)
             )
     return avg_metric_dict
 
@@ -363,6 +379,13 @@ def wt_dict_diff(wt_1, wt_2):
     for key in wt_1.keys():
         diff_dict[key] = convert_to_cpu(wt_1[key]) - convert_to_cpu(wt_2[key])
     return diff_dict
+
+def wt_dict_mean(wt_1, wt_2):
+    assert wt_1.keys() == wt_2.keys(), "Both weight dicts have different keys"
+    mean_dict = {}
+    for key in wt_1.keys():
+        mean_dict[key] = (convert_to_cpu(wt_1[key]) + convert_to_cpu(wt_2[key]))/2
+    return mean_dict
 
 
 def wt_dict_norm(wt):
@@ -542,3 +565,22 @@ def unvectorize_model_wts(flat_wts, model):
         )
     model_wts_to_update = model_wts | model_wts_to_update
     return model_wts_to_update
+
+def compute_misclustering(path, num_clusters, num_clients):
+    cluster_map  = torch.load(path)
+    client_idx = range(num_clients)
+    ## Define true clustering
+    true_clustering = {i : [j for j in client_idx if j% num_clusters == i] for i in range(num_clusters)}
+    
+    ## Sort clusters based on size
+    cluster_idx = [(len(item), key) for key, item in cluster_map.items()]
+    sorted_cluster_idx = sorted(cluster_idx)
+    sorted_cluster_idx = [a[1] for a in cluster_idx]
+
+    ## Obtain best match possible
+    num_misclustered = 0.0
+    for idx in sorted_cluster_idx:
+        curr_closest_cluster = 
+        cluster = set(cluster_map[idx])
+        for true_cluster in true_clustering
+    return sorted_cluster_idx

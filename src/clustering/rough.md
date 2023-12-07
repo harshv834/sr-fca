@@ -1,0 +1,19 @@
+**"Thanks for providing the additional experiments and comparing with FedSoft, which was published Jan 2022. However, I think the comparison is still not sufficient. The cluster-based FL is popular and many new techniques in late 2022, such as [1] Jothimurugesan, Heish, Wang, Joshi, Gibbons (AISTATS 2023) and [2] Li, Li, Varshney (IOT 2022). It would be good if this work can be compared with them."**
+
+We find it a bit surprising that we are asked to compare with a paper [1] that was accepted merely days before ICML deadline and on a different setting (distribution shift). Although this has been on arxiv (so was some version of this work, therefore these are really parallel works), we were unable to find it because of the different focus/title of distribution shift. Also [1] is mostly experimental work. Namely:
+ - Different Problem settings : Their algorithm, FedDrift, is similar to ours, as they use hierarchical clustering, but applied to solve a completely different problem, handling shift in client data distribution over time. Our problem setting, like IFCA, assumes client data does not vary with time.
+ - Initialization of IFCA still not addressed : In Page 13 of this paper, for the real FMoW dataset, they need to choose appropriate initialization for both IFCA and FedDrift. Removing the need for initialization is the exact problem we're trying to solve in this paper.
+- Comparison without distribution shift: For a fair comparison, we need to assume data is static. This comparison is then unfair for FedDrift as it is designed to handle shifts.
+However, upon the reviewer's suggestion, *we have implemented a static version and provide the results in Table 5 for FEMNIST.*
+| Baseline | FEMNIST|
+| ----------- | ------------- |
+| FedDrift  |                  | 
+- Theoretical Results : Due to the similarity in our algorithms, the main novelty of our work, our theoretical framework, can be extended to obtain theoretical results for FedDrift.
+
+
+**Comparison with Li et al. [2]**: We have cited [2] in Line We would like to emphasize that the main algorithm FLSC presented in this paper is actually only a special case of FedSoft. The soft-clustering in both FedSoft and this paper are obtained by assigning datapoints inside a client to different clusters. FedSoft employs additional techniques on top of soft-clustering, therefore, on the reviewer's suggestions, we ran additional experiments , in this rebuttal, to compare with it. We would like to reiterate that FedSoft performs worse than our algorithm, SR-FCA.
+
+**IFCA remains the experimental baseline:**
+Upon the suggestion of the reviewer, we have implemented 3 baselines in the rebuttal. However, all these baselines build on top of IFCA without solving its key problems -- initialization and $\epsilon_1\neq 0$. We addressed this problem and therefore the appropriate baseline we need to compare with is IFCA, which we have provided in the main draft. From our superior performance to modifications of IFCA, we can infer that this indeed is an important problem which was not addressed earlier.
+
+**Theoretical results:** We restate the main theoretical contributions of our paper as the reviewer asks: We propose and analyze a clustered Federated Learning algorithm, SR-FCA that does not require good initialization, the knowledge of the number of clusters and allows the users' within a cluster to have slightly different model (captured by $\epsilon_1$). On the assumptions: we only additionally assume that the (deterministic) gradients of the local losses are bounded (previous works assume a sub-exponential distribution on gradients). Theoretically, our main contribution is to show that SR-FCA obtains arbitrarily small clustering error.

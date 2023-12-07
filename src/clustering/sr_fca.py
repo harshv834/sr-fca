@@ -131,6 +131,7 @@ class SRFCA(ClusterFLAlgo):
             # self.cluster_map = TRIAL_MAP
 
         self.dist_clustering(client_dict, merge=True)
+        import ipdb;ipdb.set_trace()
         if len(self.cluster_map.keys()) == 0:
             raise ValueError(
                 "Made 0 clusters after MERGE in Refine step {}".format(refine_step)
@@ -201,7 +202,6 @@ class SRFCA(ClusterFLAlgo):
             dist_dict[(i, j)] = dist
         # print("Min dist",sorted(dist_dict.values())[0])
         # print("Max dist",sorted(dist_dict.values())[-1])
-        # import ipdb;ipdb.set_trace()
         if not merge:
             if "dist_threshold" not in self.config.keys():
                 self.config["dist_threshold"] = sorted(dist_dict.values())[
@@ -214,8 +214,8 @@ class SRFCA(ClusterFLAlgo):
         dist_clustering = correlation_clustering(
             graph, 0 if merge else self.config["size_threshold"]
         )
-
         if merge:
+            import ipdb;ipdb.set_trace()
             cluster_map = {}
             for i, cluster in dist_clustering.items():
                 new_cluster = []
