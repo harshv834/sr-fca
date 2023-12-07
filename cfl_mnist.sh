@@ -1,0 +1,12 @@
+python run.py --clustering cfl --dataset inv_mnist --seed 12345 
+python run.py --clustering cfl --dataset rot_mnist --seed 12345
+python run.py --clustering cfl --dataset inv_mnist --seed 123456 
+python run.py --clustering cfl --dataset rot_mnist --seed 123456
+python run.py --clustering cfl --dataset inv_mnist --seed 123457 
+python run.py --clustering cfl --dataset rot_mnist --seed 123457
+python run.py --clustering cfl --dataset inv_mnist --seed 123458 
+python run.py --clustering cfl --dataset rot_mnist --seed 123458
+python run.py --clustering cfl --dataset inv_mnist --seed 123459 
+python run.py --clustering cfl --dataset rot_mnist --seed 123459
+python run.py --clustering cfl --dataset inv_mnist --seed 1234569 
+python run.py --clustering cfl --dataset rot_mnist --seed 1234569

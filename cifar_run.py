@@ -431,166 +431,6 @@ def model_weights_diff(w_1, w_2):
     return np.sqrt(norm_sq)
 
 
-def main(args):
-
-    config = {}
-    config["seed"] = args.seed
-    seed = config["seed"]
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    # Torch RNG
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    # Python RNG
-    np.random.seed(seed)
-    random.seed(seed)
-
-    config["participation_ratio"] = 0.5
-    config["total_num_clients_per_cluster"] = 16
-    config["num_clients_per_cluster"] = int(
-        config["participation_ratio"] * config["total_num_clients_per_cluster"]
-    )
-    config["num_clusters"] = 2
-    config["num_clients"] = config["num_clients_per_cluster"] * config["num_clusters"]
-    config["dataset"] = "cifar10"
-    config["dataset_dir"] = "./experiments/dataset"
-    config["results_dir"] = "./experiments/results"
-    config["results_dir"] = os.path.join(
-        config["results_dir"], config["dataset"], "seed_{}".format(seed)
-    )
-
-    train_dataset = DATASET_LIB[config["dataset"]](
-        root=config["dataset_dir"], download=True, train=True
-    )
-    test_dataset = DATASET_LIB[config["dataset"]](
-        root=config["dataset_dir"], download=True, train=False
-    )
-
-    os.makedirs(config["results_dir"], exist_ok=True)
-
-    train_chunks, test_chunks = make_client_datasets(config)
-
-    client_loaders = []
-
-    config["train_batch"] = 100
-    config["test_batch"] = 512
-    CIFAR_MEAN = [0.4914, 0.4822, 0.4465]
-    CIFAR_STD = [0.2023, 0.1994, 0.2010]
-
-    for i in range(config["num_clusters"]):
-        for j in range(config["num_clients_per_cluster"]):
-            idx = i * config["num_clients_per_cluster"] + j
-
-            label_pipeline: List[Operation] = [
-                IntDecoder(),
-                ToTensor(),
-                ToDevice("cuda:0"),
-                Squeeze(),
-            ]
-            train_image_pipeline: List[Operation] = [
-                SimpleRGBImageDecoder(),
-                RandomHorizontalFlip(),
-                RandomTranslate(padding=2),
-                Cutout(8, tuple(map(int, CIFAR_MEAN))),
-                ToTensor(),
-                ToDevice("cuda:0", non_blocking=True),
-                ToTorchImage(),
-                Convert(torch.float16),
-                transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
-            ]
-
-            test_image_pipeline: List[Operation] = [
-                SimpleRGBImageDecoder(),
-                ToTensor(),
-                ToDevice("cuda:0", non_blocking=True),
-                ToTorchImage(),
-                Convert(torch.float16),
-                transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
-            ]
-
-            if i > 0:
-                train_image_pipeline.extend([transforms.RandomRotation((180, 180))])
-                test_image_pipeline.extend([transforms.RandomRotation((180, 180))])
-
-            client_loaders.append(
-                Client(
-                    train_chunks[idx],
-                    test_chunks[idx],
-                    idx,
-                    train_image_pipeline=train_image_pipeline,
-                    test_image_pipeline=test_image_pipeline,
-                    label_pipeline=label_pipeline,
-                    train_batch_size=config["train_batch"],
-                    test_batch_size=config["test_batch"],
-                    save_dir=config["results_dir"],
-                )
-            )
-
-    # model = model.to(memory_format=torch.channels_last).cuda()
-
-    # config["save_dir"] = os.path.join("./results")
-    config["iterations"] = 2400
-    config["optimizer_params"] = {"lr": 0.5, "momentum": 0.9, "weight_decay": 5e-4}
-    config["save_freq"] = 2
-    config["print_freq"] = 20
-    config["model"] = "resnet9"
-    config["optimizer"] = "sgd"
-    config["loss_func"] = "cross_entropy"
-    # config["model_params"] = {"num_channels": 1 , "num_classes"  : 62}
-    config["model_params"] = {}
-    config["device"] = torch.device("cuda:0")
-
-    client_trainers = [
-        ClientTrainer(
-            config, os.path.join(config["results_dir"], "init", "node_{}".format(i)), i
-        )
-        for i in range(config["num_clients"])
-    ]
-
-    # for i in tqdm(range(config["num_clients"])):
-    #    client_trainers[i].load_model_weights()
-
-    for i in tqdm(range(config["num_clients"])):
-        client_trainers[i].train(client_loaders[i])
-
-    G = nx.Graph()
-    G.add_nodes_from(range(config["num_clients"]))
-
-
-wt = client_trainers[0].model.state_dict()
-# thresh = 0
-# for key in wt.keys():
-#     thresh += wt[key].norm()**2
-# print(torch.sqrt(thresh))
-# thresh = 37.68
-
-all_pairs = list(itertools.combinations(range(config["num_clients"]), 2))
-arr = {}
-for pair in all_pairs:
-    arr[pair] = cross_entropy_metric(
-        client_trainers[pair[0]],
-        client_trainers[pair[1]],
-        [client_loaders[pair[0]]],
-        [client_loaders[pair[1]]],
-    )
-
-
-#     w_1  = client_trainers[pair[0]].model.state_dict()
-#     w_2 = client_trainers[pair[1]].model.state_dict()
-#     norm_diff = model_weights_diff(w_1, w_2)
-#     arr.append(norm_diff)
-# #thresh = torch.mean(torch.tensor(arr))
-# thresh = arr[torch.tensor(arr).argsort()[int(0.3*len(arr))-1]]
-# thresh = sorted(all_pairs.values())[int(0.3 * len(all_pairs))]
-thresh = 0.012
-
-for pair in all_pairs:
-    if arr[pair] < thresh:
-        G.add_edge(pair[0], pair[1])
-G = G.to_undirected()
-# cliques = list(nx.algorithms.clique.enumerate_all_cliques(G))
-
-
 clustering = []
 
 
@@ -611,13 +451,6 @@ def correlation_clustering(G):
         correlation_clustering(G)
 
 
-correlation_clustering(G)
-
-
-# config["t"] = 7
-# t = config["t"]
-clusters = [cluster for cluster in clustering if len(cluster) > 1]
-cluster_map = {i: clusters[i] for i in range(len(clusters))}
 beta = 0.2
 
 
@@ -727,88 +560,6 @@ class ClusterTrainer(BaseTrainer):
         return test_acc
 
 
-config["refine_steps"] = 2
-for refine_step in tqdm(range(config["refine_steps"])):
-    beta = 0.2
-    cluster_trainers = []
-    for cluster_id in tqdm(cluster_map.keys()):
-        cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
-        cluster_trainer = ClusterTrainer(
-            config,
-            os.path.join(
-                config["results_dir"],
-                "refine_{}".format(refine_step),
-                "cluster_{}".format(cluster_id),
-            ),
-            cluster_id,
-        )
-        cluster_trainer.train(cluster_clients)
-        cluster_trainers.append(cluster_trainer)
-    with open(
-        os.path.join(
-            config["results_dir"], "refine_{}".format(refine_step), "cluster_maps.pkl"
-        ),
-        "wb",
-    ) as handle:
-        pickle.dump(cluster_map, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    cluster_map_recluster = {}
-    for key in cluster_map.keys():
-        cluster_map_recluster[key] = []
-
-    for i in tqdm(range(config["num_clients"])):
-        trainer_node = client_trainers[i]
-
-        dist_diff = np.infty
-        new_cluster_id = 0
-        for cluster_id in cluster_map.keys():
-            trainer_cluster = cluster_trainers[cluster_id]
-            cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
-            curr_dist_diff = cross_entropy_metric(
-                trainer_node, trainer_cluster, client_loaders[i], cluster_clients
-            )
-            if dist_diff > curr_dist_diff:
-                new_cluster_id = cluster_id
-                dist_diff = curr_dist_diff
-
-        cluster_map_recluster[new_cluster_id].append(i)
-    keys = list(cluster_map_recluster.keys()).copy()
-    for key in keys:
-        if len(cluster_map_recluster[key]) == 0:
-            cluster_map_recluster.pop(key)
-    cluster_map = cluster_map_recluster
-
-    G = nx.Graph()
-    G.add_nodes_from(cluster_map.keys())
-
-    all_pairs = list(itertools.combinations(cluster_map.keys(), 2))
-    arr = {}
-    for pair in tqdm(all_pairs):
-
-        cluster_1 = [client_loaders[i] for i in cluster_map[pair[0]]]
-        cluster_2 = [client_loaders[i] for i in cluster_map[pair[1]]]
-
-        arr[pair] = cross_entropy_metric(
-            cluster_trainers[pair[0]], client_trainers[pair[1]], cluster_1, cluster_2
-        )
-
-    for pair in all_pairs:
-        if arr[pair] < thresh:
-            G.add_edge(pair[0], pair[1])
-    G = G.to_undirected()
-    clustering = []
-    correlation_clustering(G)
-    merge_clusters = [cluster for cluster in clustering if len(cluster) > 0]
-
-    # merge_cluster_map = {i: clusters[i] for i in range(len(clusters))}
-    # clusters = list(nx.algorithms.clique.enumerate_all_cliques(G))
-    cluster_map_new = {}
-    for i in range(len(merge_clusters)):
-        cluster_map_new[i] = []
-        for j in merge_clusters[i]:
-            cluster_map_new[i] += cluster_map[j]
-    cluster_map = cluster_map_new
-
-
 # class GlobalTrainer(BaseTrainer):
 #     def __init__(self,  config, save_dir):
 #         super(GlobalTrainer, self).__init__(config, save_dir)
@@ -895,10 +646,252 @@ for refine_step in tqdm(range(config["refine_steps"])):
 #         self.model.cpu()
 #         return test_acc
 
+
+args = parser.parse_args()
+config = {}
+config["seed"] = args.seed
+seed = config["seed"]
+os.environ["PYTHONHASHSEED"] = str(seed)
+# Torch RNG
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+# Python RNG
+np.random.seed(seed)
+random.seed(seed)
+
+config["participation_ratio"] = 0.5
+config["total_num_clients_per_cluster"] = 16
+config["num_clients_per_cluster"] = int(
+    config["participation_ratio"] * config["total_num_clients_per_cluster"]
+)
+config["num_clusters"] = 2
+config["num_clients"] = config["num_clients_per_cluster"] * config["num_clusters"]
+config["dataset"] = "cifar10"
+config["dataset_dir"] = "./experiments/dataset"
+config["results_dir"] = "./experiments/results"
+config["results_dir"] = os.path.join(
+    config["results_dir"], config["dataset"], "seed_{}".format(seed)
+)
+
+train_dataset = DATASET_LIB[config["dataset"]](
+    root=config["dataset_dir"], download=True, train=True
+)
+test_dataset = DATASET_LIB[config["dataset"]](
+    root=config["dataset_dir"], download=True, train=False
+)
+
+os.makedirs(config["results_dir"], exist_ok=True)
+
+train_chunks, test_chunks = make_client_datasets(config)
+
+client_loaders = []
+
+config["train_batch"] = 100
+config["test_batch"] = 512
+CIFAR_MEAN = [0.4914, 0.4822, 0.4465]
+CIFAR_STD = [0.2023, 0.1994, 0.2010]
+
+for i in range(config["num_clusters"]):
+    for j in range(config["num_clients_per_cluster"]):
+        idx = i * config["num_clients_per_cluster"] + j
+
+        label_pipeline: List[Operation] = [
+            IntDecoder(),
+            ToTensor(),
+            ToDevice("cuda:0"),
+            Squeeze(),
+        ]
+        train_image_pipeline: List[Operation] = [
+            SimpleRGBImageDecoder(),
+            RandomHorizontalFlip(),
+            RandomTranslate(padding=2),
+            Cutout(8, tuple(map(int, CIFAR_MEAN))),
+            ToTensor(),
+            ToDevice("cuda:0", non_blocking=True),
+            ToTorchImage(),
+            Convert(torch.float16),
+            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+        ]
+
+        test_image_pipeline: List[Operation] = [
+            SimpleRGBImageDecoder(),
+            ToTensor(),
+            ToDevice("cuda:0", non_blocking=True),
+            ToTorchImage(),
+            Convert(torch.float16),
+            transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+        ]
+
+        if i > 0:
+            train_image_pipeline.extend([transforms.RandomRotation((180, 180))])
+            test_image_pipeline.extend([transforms.RandomRotation((180, 180))])
+
+        client_loaders.append(
+            Client(
+                train_chunks[idx],
+                test_chunks[idx],
+                idx,
+                train_image_pipeline=train_image_pipeline,
+                test_image_pipeline=test_image_pipeline,
+                label_pipeline=label_pipeline,
+                train_batch_size=config["train_batch"],
+                test_batch_size=config["test_batch"],
+                save_dir=config["results_dir"],
+            )
+        )
+
+# model = model.to(memory_format=torch.channels_last).cuda()
+
+# config["save_dir"] = os.path.join("./results")
+config["iterations"] = 2400
+config["optimizer_params"] = {"lr": 0.5, "momentum": 0.9, "weight_decay": 5e-4}
+config["save_freq"] = 2
+config["print_freq"] = 20
+config["model"] = "resnet9"
+config["optimizer"] = "sgd"
+config["loss_func"] = "cross_entropy"
+# config["model_params"] = {"num_channels": 1 , "num_classes"  : 62}
+config["model_params"] = {}
+config["device"] = torch.device("cuda:0")
+
+client_trainers = [
+    ClientTrainer(
+        config, os.path.join(config["results_dir"], "init", "node_{}".format(i)), i
+    )
+    for i in range(config["num_clients"])
+]
+
+# for i in tqdm(range(config["num_clients"])):
+#    client_trainers[i].load_model_weights()
+
+for i in tqdm(range(config["num_clients"])):
+    client_trainers[i].train(client_loaders[i])
+
+G = nx.Graph()
+G.add_nodes_from(range(config["num_clients"]))
+
+wt = client_trainers[0].model.state_dict()
+# thresh = 0
+# for key in wt.keys():
+#     thresh += wt[key].norm()**2
+# print(torch.sqrt(thresh))
+# thresh = 37.68
+
+all_pairs = list(itertools.combinations(range(config["num_clients"]), 2))
+arr = {}
+for pair in all_pairs:
+    arr[pair] = cross_entropy_metric(
+        client_trainers[pair[0]],
+        client_trainers[pair[1]],
+        [client_loaders[pair[0]]],
+        [client_loaders[pair[1]]],
+    )
+
+#     w_1  = client_trainers[pair[0]].model.state_dict()
+#     w_2 = client_trainers[pair[1]].model.state_dict()
+#     norm_diff = model_weights_diff(w_1, w_2)
+#     arr.append(norm_diff)
+# #thresh = torch.mean(torch.tensor(arr))
+# thresh = arr[torch.tensor(arr).argsort()[int(0.3*len(arr))-1]]
+# thresh = sorted(all_pairs.values())[int(0.3 * len(all_pairs))]
+thresh = 0.012
+
+for pair in all_pairs:
+    if arr[pair] < thresh:
+        G.add_edge(pair[0], pair[1])
+G = G.to_undirected()
+# cliques = list(nx.algorithms.clique.enumerate_all_cliques(G))
+
+correlation_clustering(G)
+
+# config["t"] = 7
+# t = config["t"]
+clusters = [cluster for cluster in clustering if len(cluster) > 1]
+cluster_map = {i: clusters[i] for i in range(len(clusters))}
+
+config["refine_steps"] = 2
+for refine_step in tqdm(range(config["refine_steps"])):
+    cluster_trainers = []
+    refine_path = os.path.join(config["results_dir"], "refine_{}".format(refine_step))
+    os.makedirs(refine_path, exist_ok=True)
+    for cluster_id in tqdm(cluster_map.keys()):
+        cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
+        cluster_trainer = ClusterTrainer(
+            config,
+            os.path.join(
+                refine_path,
+                "cluster_{}".format(cluster_id),
+            ),
+            cluster_id,
+        )
+        cluster_trainer.train(cluster_clients)
+        cluster_trainers.append(cluster_trainer)
+    torch.save(cluster_map, os.path.join(refine_path, "cluster_maps.pth"))
+    import ipdb
+
+    ipdb.set_trace()
+    cluster_map_recluster = {}
+    for key in cluster_map.keys():
+        cluster_map_recluster[key] = []
+
+    for i in tqdm(range(config["num_clients"])):
+        trainer_node = client_trainers[i]
+
+        dist_diff = np.infty
+        new_cluster_id = 0
+        for cluster_id in cluster_map.keys():
+            trainer_cluster = cluster_trainers[cluster_id]
+            cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
+            curr_dist_diff = cross_entropy_metric(
+                trainer_node, trainer_cluster, client_loaders[i], cluster_clients
+            )
+            if dist_diff > curr_dist_diff:
+                new_cluster_id = cluster_id
+                dist_diff = curr_dist_diff
+
+        cluster_map_recluster[new_cluster_id].append(i)
+    keys = list(cluster_map_recluster.keys()).copy()
+    for key in keys:
+        if len(cluster_map_recluster[key]) == 0:
+            cluster_map_recluster.pop(key)
+    cluster_map = cluster_map_recluster
+
+    G = nx.Graph()
+    G.add_nodes_from(cluster_map.keys())
+
+    all_pairs = list(itertools.combinations(cluster_map.keys(), 2))
+    arr = {}
+    for pair in tqdm(all_pairs):
+
+        cluster_1 = [client_loaders[i] for i in cluster_map[pair[0]]]
+        cluster_2 = [client_loaders[i] for i in cluster_map[pair[1]]]
+
+        arr[pair] = cross_entropy_metric(
+            cluster_trainers[pair[0]],
+            client_trainers[pair[1]],
+            cluster_1,
+            cluster_2,
+        )
+
+    for pair in all_pairs:
+        if arr[pair] < thresh:
+            G.add_edge(pair[0], pair[1])
+    G = G.to_undirected()
+
+    clustering = []
+
+    correlation_clustering(G)
+    merge_clusters = [cluster for cluster in clustering if len(cluster) > 0]
+
+    # merge_cluster_map = {i: clusters[i] for i in range(len(clusters))}
+    # clusters = list(nx.algorithms.clique.enumerate_all_cliques(G))
+    cluster_map_new = {}
+    for i in range(len(merge_clusters)):
+        cluster_map_new[i] = []
+        for j in merge_clusters[i]:
+            cluster_map_new[i] += cluster_map[j]
+    cluster_map = cluster_map_new
+
 # global_trainer = GlobalTrainer(config, os.path.join(config["results_dir"], "global"))
 # global_trainer.train(client_loaders)
-
-
-if __name__ == "__main__":
-    args = parser.parse_args()
-    main(args)
