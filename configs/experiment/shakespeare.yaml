@@ -5,4 +5,4 @@ path: /base_vol/sr_fca_main/experiments/shakespeare/
 batch:
   train: 10
   test: 512
-full_data_path : /base_vol/sr_fca_refactor/leaf/data/shakespeare/data
+full_data_path : /base_vol/leaf/data/shakespeare/data

@@ -203,6 +203,8 @@ class SRFCA(ClusterFLAlgo):
         # print("Min dist",sorted(dist_dict.values())[0])
         # print("Max dist",sorted(dist_dict.values())[-1])
         if not merge:
+            import ipdb;ipdb.set_trace()
+            torch.save(dist_dict, os.path.join(self.config["path"]["results"], "init", "dist_dict.pth"))
             if "dist_threshold" not in self.config.keys():
                 self.config["dist_threshold"] = sorted(dist_dict.values())[
                     ceil(self.config["dist_fraction"] * len(dist_dict.keys()))
@@ -215,7 +217,6 @@ class SRFCA(ClusterFLAlgo):
             graph, 0 if merge else self.config["size_threshold"]
         )
         if merge:
-            import ipdb;ipdb.set_trace()
             cluster_map = {}
             for i, cluster in dist_clustering.items():
                 new_cluster = []

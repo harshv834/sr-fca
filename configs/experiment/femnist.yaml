@@ -7,5 +7,5 @@ path: /base_vol/sr_fca_main/experiments/femnist/
 batch:
   train: 100
   test: 512
-full_data_path : /base_vol/sr_fca_refactor/leaf/data/femnist/data
+full_data_path : /base_vol/leaf/data/femnist/data
 pretrained_path: /base_vol/sr_fca_main/femnist_pretrained.pth

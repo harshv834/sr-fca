@@ -566,21 +566,23 @@ def unvectorize_model_wts(flat_wts, model):
     model_wts_to_update = model_wts | model_wts_to_update
     return model_wts_to_update
 
-def compute_misclustering(path, num_clusters, num_clients):
-    cluster_map  = torch.load(path)
-    client_idx = range(num_clients)
-    ## Define true clustering
-    true_clustering = {i : [j for j in client_idx if j% num_clusters == i] for i in range(num_clusters)}
+# def compute_misclustering(path, num_clusters, num_clients):
+#     cluster_map  = torch.load(path)
+#     client_idx = range(num_clients)
+#     ## Define true clustering
+#     true_clustering = {i : [j for j in client_idx if j% num_clusters == i] for i in range(num_clusters)}
     
-    ## Sort clusters based on size
-    cluster_idx = [(len(item), key) for key, item in cluster_map.items()]
-    sorted_cluster_idx = sorted(cluster_idx)
-    sorted_cluster_idx = [a[1] for a in cluster_idx]
+#     ## Sort clusters based on size
+#     cluster_idx = [(len(item), key) for key, item in cluster_map.items()]
+#     sorted_cluster_idx = sorted(cluster_idx)
+#     sorted_cluster_idx = [a[1] for a in cluster_idx]
 
-    ## Obtain best match possible
-    num_misclustered = 0.0
-    for idx in sorted_cluster_idx:
-        curr_closest_cluster = 
-        cluster = set(cluster_map[idx])
-        for true_cluster in true_clustering
-    return sorted_cluster_idx
+#     ## Obtain best match possible
+#     num_misclustered = 0.0
+#     for idx in sorted_cluster_idx:
+#         curr_closest_cluster = 
+#         cluster = set(cluster_map[idx])
+#         for true_cluster in true_clustering
+#     return sorted_cluster_idx
+
+
