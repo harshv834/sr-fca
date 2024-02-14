@@ -6,22 +6,13 @@ import random
 import argparse
 import networkx as nx
 import itertools
+import ipdb
 
 from cifar_dataset import  create_client_loaders
-from cifar_utils import  cross_entropy_metric, create_config, model_weights_diff
+from cifar_utils import  cross_entropy_metric, create_config, model_weights_diff, create_argparse
 from cifar_trainers import ClientTrainer, ClusterTrainer
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--het", choices=["rot", "label"], type=str, required=True, 
-                    help="Choose whether to run experiments on Rotated CIFAR10 or CIFAR10 with label heterogeneity"
-)
-parser.add_argument(
-    "--seed", type=int, required=True, help="Random seed for the experiment"
-)
-parser.add_argument(
-    "--from_init",
-    action=argparse.BooleanOptionalAction  
-)
+parser = create_argparse()
 
 clustering = []
 
@@ -42,8 +33,9 @@ def correlation_clustering(G):
         correlation_clustering(G)
 
 
+args = parser.parse_args()
+config= create_config(args)
 
-config= create_config(parser)
 ### Define beta here for cluster trainer
 config["beta"] = 0
 

@@ -5,6 +5,7 @@ from torch.cuda.amp import autocast
 import torch.nn as nn
 import numpy as np
 import random
+import argparse
 
 def calc_local_acc_from_old(base_path):
     init_path = os.path.join(base_path, "init")
@@ -155,9 +156,8 @@ def model_weights_diff(w_1, w_2):
     return np.sqrt(norm_sq)
 
 
-def create_config(parser):
-    args = parser.parse_args()
-    config = {}
+def create_config(args):
+    config =  vars(args)
     config["seed"] = args.seed
     seed = config["seed"]
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -209,3 +209,21 @@ def create_config(parser):
     config["device"] = torch.device("cuda:0")
     
     return config
+
+
+
+def create_argparser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--het", choices=["rot", "label"], type=str, required=True, 
+                        help="Choose whether to run experiments on Rotated CIFAR10 or CIFAR10 with label heterogeneity"
+    )
+    parser.add_argument(
+        "--seed", type=int, required=True, help="Random seed for the experiment"
+    )
+    parser.add_argument(
+        "--from_init",
+        action=argparse.BooleanOptionalAction  
+    )
+    parser.add_argument("--debug", action=argparse.BooleanOptionalAction, help = "debug variable")
+
+    return parser

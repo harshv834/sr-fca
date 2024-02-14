@@ -244,3 +244,93 @@ class ClusterTrainer(BaseTrainer):
             test_acc += calc_acc(self.model, self.device, client_data, train=False)
         self.model.cpu()
         return test_acc
+
+
+
+class GlobalTrainer(BaseTrainer):
+    def __init__(self, config, save_dir):
+        super(GlobalTrainer, self).__init__(config, save_dir)
+
+    def train(self, client_data_list, lr_schedule):
+        num_clients = len(client_data_list)
+
+        train_loss_list = []
+        test_acc_list = []
+        self.model.to(memory_format=torch.channels_last).cuda()
+        self.model.train()
+        optimizer = OPTIMIZER_LIST[self.config["optimizer"]](
+            self.model.parameters(), **self.config["optimizer_params"]
+        )
+
+        scheduler = lr_scheduler.LambdaLR(optimizer, lr_schedule.__getitem__)
+        scaler = GradScaler()
+
+        for iteration in tqdm(range(self.config["iterations"])):
+            t0 = time.time()
+            trmean_buffer = {}
+            for idx, param in self.model.named_parameters():
+                trmean_buffer[idx] = []
+            train_loss = 0
+            optimizer.zero_grad(set_to_none=True)
+            for client in client_data_list:
+                optimizer.zero_grad(set_to_none=True)
+                (X, Y) = client.sample_batch()
+                loss_func = nn.CrossEntropyLoss(label_smoothing=0.1)
+                with autocast():
+                    out = self.model(X)
+                    loss = loss_func(out, Y)
+                scaler.scale(loss).backward()
+                train_loss += loss.detach().cpu().numpy().item()
+                with torch.no_grad():
+                    for idx, param in self.model.named_parameters():
+                        trmean_buffer[idx].append(param.grad.clone())
+
+            optimizer.zero_grad(set_to_none=True)
+            start_idx = 0
+            end_idx = num_clients
+
+            for idx, param in self.model.named_parameters():
+                sorted, _ = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
+                new_grad = sorted[start_idx:end_idx, ...].mean(dim=0)
+                param.grad = new_grad
+                trmean_buffer[idx] = []
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            train_loss = train_loss / num_clients
+            train_loss_list.append(train_loss)
+            test_acc = 0
+            for client_data in client_data_list:
+                test_acc += calc_acc(self.model, self.device, client_data, train=False)
+            test_acc = test_acc / num_clients
+            test_acc_list.append(test_acc)
+            self.model.train()
+            t1 = time.time()
+            time_taken = t1 - t0
+
+            if (
+                iteration % self.config["save_freq"] == 0
+                or iteration == self.config["iterations"] - 1
+            ):
+                self.save_model_weights()
+                self.save_metrics(train_loss_list, test_acc_list, iteration)
+
+            if iteration % self.config["print_freq"] == 0 or iteration == self.config["iterations"] - 1:
+                print(
+                    "Iteration : {} \n , Train Loss : {} \n, Test Acc : {} \n, Time : {}\n".format(
+                        iteration, train_loss, test_acc, time_taken
+                    )
+                )
+
+        self.model.eval()
+        # self.model.cpu()
+
+    def test(self, client_data_list):
+        self.load_model_weights()
+        self.model.eval()
+        self.model.to(self.device)
+        test_acc = 0
+        for client_data in client_data_list:
+            test_acc += calc_acc(self.model, self.device, client_data, train=False)
+        self.model.cpu()
+        return test_acc
