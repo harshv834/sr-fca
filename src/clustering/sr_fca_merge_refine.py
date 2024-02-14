@@ -9,13 +9,15 @@ import torch
 
 from src.clustering.base import TRIAL_MAP, ClusterFLAlgo
 from src.trainers import ClientTrainer, ClusterTrainer
-from src.utils import avg_metrics, check_nan, compute_dist, correlation_clustering
+from src.utils import avg_metrics, check_nan, compute_dist, correlation_clustering, wt_dict_mean
 from tqdm import tqdm
+import shutil
 
 
-class SRFCA(ClusterFLAlgo):
+
+class SRFCAMergeRefine(ClusterFLAlgo):
     def __init__(self, config, tune=False, tune_config=None):
-        super(SRFCA, self).__init__(config, tune, tune_config)
+        super(SRFCAMergeRefine, self).__init__(config, tune, tune_config)
         if tune:
             self.config["refine"]["rounds"] = ceil(
                 int(self.config["init"]["iterations"])
@@ -63,16 +65,23 @@ class SRFCA(ClusterFLAlgo):
 
         client_dict = experiment.client_dict
         init_path = os.path.join(self.config["path"]["results"], "init")
-
+        client_path = lambda i, path : os.path.join(path, "client_{}".format(i))
         ## If saved models present in init then start SR_FCA from there
         if "from_init" in self.config.keys() and self.config["from_init"]:
             ## Get the path from init
+            sr_fca_init_path = "/" + os.path.join(*(self.config["path"]["results"].split("/")[:-1] + ["sr_fca", "init"]))            
             for i in tqdm(self.client_trainers.keys()):
                 ## Set save directory for local models
-                self.client_trainers[i].set_save_dir(os.path.join(init_path, "client_{}".format(i)))
+                self.client_trainers[i].set_save_dir(client_path(i, init_path))
+                model_path = os.path.join(client_path(i, sr_fca_init_path), "model.pth")
+
+                ## Copy metrics and model of local model
+                shutil.copy2(os.path.join(client_path(i, sr_fca_init_path), "metrics.pth"), os.path.join(client_path(i, init_path), "metrics.pth"))
+                shutil.copy2(model_path, os.path.join(client_path(i, init_path), "model.pth"))
+
                 ## Load saved model weights
                 self.client_trainers[i].load_saved_weights()
-            self.init_metrics = torch.load(os.path.join(init_path, "metrics.pth"))
+            self.init_metrics = torch.load(os.path.join(sr_fca_init_path , "metrics.pth"))
         else:
             init_metrics = []
             for i in tqdm(self.client_trainers.keys()):
@@ -98,20 +107,17 @@ class SRFCA(ClusterFLAlgo):
             self.config["path"]["results"], "refine_{}".format(refine_step)
         )
         client_dict = experiment.client_dict
-        self.cluster_trainers = {}
         refine_metrics = []
 
         for i, client_idx in self.cluster_map.items():
-            cluster_trainer = ClusterTrainer(self.config, i)
             cluster_save_dir = os.path.join(refine_path, "cluster_{}".format(i))
-            cluster_trainer.set_save_dir(cluster_save_dir)
-            cluster_metrics = cluster_trainer.train(
+            self.cluster_trainers[i].set_save_dir(cluster_save_dir)
+            cluster_metrics = self.cluster_trainers[i].train(
                 client_dict=client_dict,
                 client_idx=client_idx,
                 local_iter=self.config["refine"]["local_iter"],
                 rounds=self.config["refine"]["rounds"],
             )
-            self.cluster_trainers[i] = cluster_trainer
             refine_metrics.append((len(client_idx), cluster_metrics))
 
         if refine_step == 0:
@@ -207,8 +213,6 @@ class SRFCA(ClusterFLAlgo):
                 self.config["dist_threshold"] = sorted(dist_dict.values())[
                     ceil(self.config["dist_fraction"] * len(dist_dict.keys()))
                 ]
-        import ipdb;ipdb.set_trace()
-
         for (i, j), dist in dist_dict.items():
             if dist <= self.config["dist_threshold"]:
                 graph.add_edge(i, j)
@@ -216,6 +220,8 @@ class SRFCA(ClusterFLAlgo):
         dist_clustering = correlation_clustering(
             graph, 0 if merge else self.config["size_threshold"]
         )
+
+        # Use dist_clustering to obtain clusters of clients.
         if merge:
             cluster_map = {}
             for i, cluster in dist_clustering.items():
@@ -226,3 +232,22 @@ class SRFCA(ClusterFLAlgo):
             self.cluster_map = cluster_map
         else:
             self.cluster_map = dist_clustering
+        
+
+        ## Define new cluster trainers and transfer the weights as averages.                
+        # Define coeff map to obtain coefficients for merging models.
+        # merge model weights according to clustering
+        
+        merged_cluster_models = {key: wt_dict_mean([(len(clients[j]), trainers[j].model.state_dict()) for j in val])
+                                    for key, val in dist_clustering.items()}
+        
+
+        
+
+        # Define new cluster trainers initialized with merged model weights
+        self.cluster_trainers = {}    
+        for i in self.cluster_map.keys():
+            cluster_trainer = ClusterTrainer(self.config, i)
+            cluster_trainer.model.load_state_dict(merged_cluster_models[i])
+            self.cluster_trainers[i] = cluster_trainer
+

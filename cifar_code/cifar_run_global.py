@@ -35,7 +35,7 @@ from ffcv.transforms import (
 from ffcv.transforms.common import Squeeze
 from ffcv.writer import DatasetWriter
 from cifar_dataset import DATASET_LIB, Client, make_client_datasets
-from resnet9 import ResNet9
+from model import ResNet9
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--seed", type=int, required=True, help="Random seed for the experiment"

@@ -41,7 +41,7 @@ def args_getter():
     parser.add_argument(
         "-c",
         "--clustering",
-        choices=["sr_fca", "ifca", "cfl", "oneshot_kmeans", "fedavg", "soft_ifca", "oneshot_ifca", "feddrift"],
+        choices=["sr_fca", "ifca", "cfl", "oneshot_kmeans", "fedavg", "soft_ifca", "oneshot_ifca", "feddrift", "sr_fca_merge_refine"],
         # required=True,
         default="sr_fca",
         help="Clustering algo to use for this run, if all is specified run all algorithms and compare",
@@ -277,7 +277,7 @@ def correlation_clustering(client_graph, size_threshold):
     clustering = []
     while len(client_graph.nodes) > 0:
         cluster = []
-        new_cluster_pivot = random.sample(client_graph.nodes, 1)[0]
+        new_cluster_pivot = random.sample(list(client_graph.nodes), 1)[0]
         cluster.append(new_cluster_pivot)
         neighbors = client_graph[new_cluster_pivot].copy()
         for node in neighbors:
@@ -380,11 +380,21 @@ def wt_dict_diff(wt_1, wt_2):
         diff_dict[key] = convert_to_cpu(wt_1[key]) - convert_to_cpu(wt_2[key])
     return diff_dict
 
-def wt_dict_mean(wt_1, wt_2):
-    assert wt_1.keys() == wt_2.keys(), "Both weight dicts have different keys"
-    mean_dict = {}
-    for key in wt_1.keys():
-        mean_dict[key] = (convert_to_cpu(wt_1[key]) + convert_to_cpu(wt_2[key]))/2
+def wt_dict_mean(wts_coeff_list):
+    # Input should be [(coeff_1, wt_1), (coeff_2, wt_2), ..]
+    # Output is (coeff_1 * wt_1 + coeff_2 * wt_2 + ..)/(coeff_1 + coeff_2 + ..)
+    
+    coeff_list, wts_list = list(zip(*wts_coeff_list))
+    coeff_arr = torch.tensor(coeff_list).float()
+    first_wt = wts_list[0]
+    for i, wt in enumerate(wts_list[1:]):
+        assert first_wt.keys() == wt.keys(), f"First weight and weight {i} have different keys"
+    
+    mean_dict = {}    
+    for key in first_wt.keys():
+        mean_dict[key] = (torch.stack([wt[key] for wt in wts_list], dim=-1).cpu().float() @ coeff_arr)/ coeff_arr.sum()
+        assert mean_dict[key].shape == first_wt[key].shape
+        
     return mean_dict
 
 
@@ -584,5 +594,3 @@ def unvectorize_model_wts(flat_wts, model):
 #         cluster = set(cluster_map[idx])
 #         for true_cluster in true_clustering
 #     return sorted_cluster_idx
-
-

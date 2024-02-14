@@ -1,0 +1,26 @@
+model: 
+  name: two_layer_lin
+  params:
+    input_size: 784
+    hidden_size: 200
+    num_classes: 10    
+dist_threshold: 0.02
+size_threshold: 2
+freq:
+  metrics: 30
+  save: 150
+  print: 60
+num_refine_steps: 2
+beta: 0.15
+num_clients_per_round: 10
+init:
+  iterations: 250
+refine:
+  local_iter: 5
+  rounds: 42
+optimizer:
+optimizer:
+  name: adam
+  params:
+    lr: 0.0002
+dist_metric : cross_entropy

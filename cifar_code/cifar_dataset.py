@@ -1,29 +1,10 @@
 import torch
 import numpy as np
 from torch.utils.data import Dataset
-from abc import ABC
-from tqdm import tqdm
 import torchvision
 import os
-import torch.nn as nn
-import torch.optim as optim
-import random
-import argparse
 import torchvision.transforms as transforms
-from torch.cuda.amp import GradScaler, autocast
-from torch.optim import lr_scheduler
-
 import time
-
-from typing import List
-
-import torchvision
-DATASET_LIB = {
-    "mnist": torchvision.datasets.MNIST,
-    "emnist": torchvision.datasets.EMNIST,
-    "cifar10": torchvision.datasets.CIFAR10,
-}
-
 from ffcv.fields import IntField, RGBImageField
 from ffcv.fields.decoders import IntDecoder, SimpleRGBImageDecoder
 from ffcv.loader import Loader, OrderOption
@@ -39,6 +20,19 @@ from ffcv.transforms import (
 )
 from ffcv.transforms.common import Squeeze
 from ffcv.writer import DatasetWriter
+from tqdm import tqdm 
+from typing import List
+
+CIFAR_MEAN = [0.4914, 0.4822, 0.4465]
+CIFAR_STD = [0.2023, 0.1994, 0.2010]
+
+
+DATASET_LIB = {
+    "mnist": torchvision.datasets.MNIST,
+    "emnist": torchvision.datasets.EMNIST,
+    "cifar10": torchvision.datasets.CIFAR10,
+}
+
 
 def split(dataset_size, num_clients, shuffle):
     split_idx = []
@@ -49,7 +43,7 @@ def split(dataset_size, num_clients, shuffle):
     return split_idx
 
 
-def dataset_split(train_data, test_data, num_clients, shuffle):
+def dataset_split(train_data, test_data, num_clients, shuffle, dataset_het):
     train_size = train_data[0].shape[0]
     train_split_idx = split(train_size, num_clients, shuffle)
     train_chunks = [
@@ -70,22 +64,34 @@ def dataset_split(train_data, test_data, num_clients, shuffle):
     ]
     return train_chunks, test_chunks
 
+#Filter dataset based on cluster_id
+def filter_labels(data, cluster_id):
+    features, target = data
+    target = np.array(target)
+    # If cluster idx is odd, keep only the classes (5-9) else keep classes (0-4)
+    idx_to_keep = np.isin(target, range(cluster_id%2, 5*(cluster_id%2 + 1)))  
+    features = features[idx_to_keep]
+    target = target[idx_to_keep].tolist()
+    return features, target
 
-def make_client_datasets(config):
+def make_client_datasets(dataset_name, dataset_het, config):
     train_chunks_total = []
     test_chunks_total = []
-    train_dataset = DATASET_LIB[config["dataset"]](
+    train_dataset = DATASET_LIB[dataset_name](
         root=config["dataset_dir"], download=True, train=True
     )
-    test_dataset = DATASET_LIB[config["dataset"]](
+    test_dataset = DATASET_LIB[dataset_name](
         root=config["dataset_dir"], download=True, train=False
     )
 
     train_data = (train_dataset.data, train_dataset.targets)
     test_data = (test_dataset.data, test_dataset.targets)
     for i in range(config["num_clusters"]):
+        if dataset_het == "label":
+            train_data = filter_labels(train_data, i)
+            test_data = filter_labels(test_data, i)
         train_chunks, test_chunks = dataset_split(
-            train_data, test_data, config["total_num_clients_per_cluster"], shuffle=True
+            train_data, test_data, config["total_num_clients_per_cluster"], shuffle=True, dataset_het=dataset_het
         )
         chunks_idx = np.random.choice(
             np.arange(len(train_chunks)),
@@ -195,3 +201,58 @@ class Client:
         return (data, labels)
     
     
+def create_client_loaders(config):
+    dataset_name, dataset_het = config["dataset"].split("_")
+    train_chunks, test_chunks = make_client_datasets(dataset_name=dataset_name,
+                                                     dataset_het=dataset_het,
+                                                     config=config)
+    client_loaders = []
+    label_pipeline: List[Operation] = [
+        IntDecoder(),
+        ToTensor(),
+        ToDevice("cuda:0"),
+        Squeeze(),
+    ]
+    train_image_pipeline: List[Operation] = [
+        SimpleRGBImageDecoder(),
+        RandomHorizontalFlip(),
+        RandomTranslate(padding=2),
+        Cutout(8, tuple(map(int, CIFAR_MEAN))),
+        ToTensor(),
+        ToDevice("cuda:0", non_blocking=True),
+        ToTorchImage(),
+        Convert(torch.float16),
+        transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+    ]
+
+    test_image_pipeline: List[Operation] = [
+        SimpleRGBImageDecoder(),
+        ToTensor(),
+        ToDevice("cuda:0", non_blocking=True),
+        ToTorchImage(),
+        Convert(torch.float16),
+        transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+    ]
+
+    for i in tqdm(range(config["num_clusters"])):
+        for j in tqdm(range(config["num_clients_per_cluster"])):
+            idx = i * config["num_clients_per_cluster"] + j
+            if i > 0 and dataset_het == "rot":
+                train_pipeline_copy = train_image_pipeline.copy()
+                test_pipeline_copy = test_image_pipeline.copy()
+                train_pipeline_copy.extend([transforms.RandomRotation((180, 180))])
+                test_pipeline_copy.extend([transforms.RandomRotation((180, 180))])
+
+            client_loaders.append(
+                Client(
+                    train_chunks[idx],
+                    test_chunks[idx],
+                    idx,
+                    train_image_pipeline=train_pipeline_copy,
+                    test_image_pipeline=test_pipeline_copy,
+                    label_pipeline=label_pipeline,
+                    train_batch_size=config["train_batch"],
+                    test_batch_size=config["test_batch"],
+                    save_dir=config["results_dir"],
+                )
+            )

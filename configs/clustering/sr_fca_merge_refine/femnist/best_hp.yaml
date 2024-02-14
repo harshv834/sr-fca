@@ -1,0 +1,23 @@
+beta: 0.209240594395063
+dist_metric: cross_entropy
+dist_threshold: 0.5400006930467591
+freq:
+  metrics: 30
+  print: 60
+  save: 150
+init:
+  iterations: 1000
+local_iter: 5
+model:
+  name: simplecnn
+num_clients_per_round: 10
+num_refine_steps: 2
+optimizer:
+  name: sgd
+  params:
+    lr: 0.04
+refine:
+  local_iter: 5
+  rounds: 200
+rounds: 200
+size_threshold: 2

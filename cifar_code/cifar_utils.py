@@ -4,6 +4,7 @@ import pickle
 from torch.cuda.amp import autocast
 import torch.nn as nn
 import numpy as np
+import random
 
 def calc_local_acc_from_old(base_path):
     init_path = os.path.join(base_path, "init")
@@ -131,3 +132,80 @@ def compute_alpha_max(alpha_mat, partitions, client_idx):
     return alpha_mat[[client_idx.index(el) for el in partitions[keys[0]]], :][
         :, [client_idx.index(el) for el in partitions[keys[1]]]
     ].max()
+
+
+def cross_entropy_metric(trainer_1, trainer_2, client_1, client_2):
+    trainer_1_client_2 = 0.0
+    for client in client_2:
+        trainer_1_client_2 += calc_loss(trainer_1.model, client, train=True)
+        trainer_1_client_2 = trainer_1_client_2 / len(client_2)
+        trainer_2_client_1 = 0.0
+        for client in client_1:
+            trainer_2_client_1 += calc_loss(trainer_2.model, client, train=True)
+        trainer_2_client_1 = trainer_2_client_1 / len(client_1)
+        return (trainer_1_client_2 + trainer_2_client_1) / 2
+
+
+def model_weights_diff(w_1, w_2):
+    norm_sq = 0
+    assert w_1.keys() == w_2.keys(), "Model weights have different keys"
+    for key in w_1.keys():
+        if w_1[key].dtype == torch.float32:
+            norm_sq += (w_1[key] - w_2[key]).norm() ** 2
+    return np.sqrt(norm_sq)
+
+
+def create_config(parser):
+    args = parser.parse_args()
+    config = {}
+    config["seed"] = args.seed
+    seed = config["seed"]
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    # Torch RNG
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # Python RNG
+    np.random.seed(seed)
+    random.seed(seed)
+
+
+    ### Define beta here for cluster trainer
+    config["beta"] = 0
+
+    config["participation_ratio"] = 0.5
+    config["total_num_clients_per_cluster"] = 16
+    config["num_clients_per_cluster"] = int(
+        config["participation_ratio"] * config["total_num_clients_per_cluster"]
+    )
+    config["num_clusters"] = 2
+    config["num_clients"] = config["num_clients_per_cluster"] * config["num_clusters"]
+    config["dataset"] = "cifar10_" + args.het
+    config["dataset_dir"] = "../experiments/dataset"
+    config["results_dir"] = "../experiments/results"
+    config["results_dir"] = os.path.join(
+        config["results_dir"], config["dataset"], "seed_{}".format(seed)
+    )
+
+
+    os.makedirs(config["results_dir"], exist_ok=True)
+
+
+
+    config["train_batch"] = 100
+    config["test_batch"] = 512
+
+
+    # config["save_dir"] = os.path.join("./results")
+    config["iterations"] = 2400
+    config["optimizer_params"] = {"lr": 0.5, "momentum": 0.9, "weight_decay": 5e-4}
+    config["save_freq"] = 400
+    config["print_freq"] = 400
+    config["model"] = "resnet9"
+    config["optimizer"] = "sgd"
+    config["loss_func"] = "cross_entropy"
+    # config["model_params"] = {"num_channels": 1 , "num_classes"  : 62}
+    config["model_params"] = {}
+    config["device"] = torch.device("cuda:0")
+    
+    return config

@@ -237,7 +237,7 @@ class ClientTrainer(BaseTrainer):
         # import ipdb
 
         # ipdb.set_trace()
-        for iteration in tqdm(range(local_iter), disable=self.mode == "fed"):
+        for iteration in tqdm(range(local_iter), disable=False):
             t0 = time.time()
             # if self.config["dataset"]["name"] == "rot_cifar10_ftrs":
             #     if self.mode == "solo" and flag:
