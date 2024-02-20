@@ -17,18 +17,6 @@ def calc_local_acc_from_old(base_path):
     return test_acc
 
 
-# def calc_sr_fca_acc_from_old(base_path):
-#     refine_path = os.path.join(base_path, "refine_0")
-#     with open(os.path.join(refine_path, "cluster_maps.pkl"), "rb") as f:
-#         cluster_maps = pickle.load(f)
-    
-#     test_acc = 0.0
-#     for i in range(16):
-#         metrics = torch.load(os.path.join(init_path, "node_{}".format(i), "metrics_2399.pkl"))
-#         test_acc += metrics['test_acc'][-1]
-#     test_acc = test_acc/16
-#     return test_acc
-
 
 def calc_acc(model, device, client_data, train):
     loader = client_data.trainloader if train else client_data.testloader

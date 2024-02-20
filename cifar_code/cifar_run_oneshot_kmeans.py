@@ -87,7 +87,6 @@ else:
     for i in tqdm(range(config["num_clients"])):
         client_trainers[i].train(client_loaders[i])
         
-# import ipdb;ipdb.set_trace()
 kmeans_path = os.path.join(config["results_dir"], "kmeans")
 kmeans_metrics = []
 
@@ -106,7 +105,6 @@ kmeans_model.fit(client_model_wts)
 cluster_map = {}
 cluster_trainers = {}
 kmeans_metrics = []
-# import ipdb;ipdb.set_trace()
 test_acc = 0.0
 
 for i in range(config["num_clusters"]):

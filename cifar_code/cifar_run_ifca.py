@@ -36,17 +36,13 @@ def main(args):
     client_loaders = create_client_loaders(config)
 
     rounds = 2400
-    # rounds = 2400 // 10
-    # local_iter = 10
     config["iterations"] = 1
-    # import ipdb;ipdb.set_trace()
     
     ## Initial cluster_map
     all_clients = list(range(16))
     np.random.shuffle(all_clients)
     cluster_map = {0: all_clients[:8], 1: all_clients[8:]}
 
-    # cluster_map = {0: [0, 2, 4, 6, 8, 10, 12, 14], 1: [1, 3, 5, 7, 9, 11, 13, 15]}
 
     client_loaders = np.array(client_loaders)
     ifca_trainers = [

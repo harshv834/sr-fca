@@ -11,9 +11,6 @@ def main(args):
     config = create_config(args)
     client_loaders = create_client_loaders(config)
 
-    # rounds = 2400 // 10
-    # local_iter = 10
-    # config["iterations"] = 10
     
 
     global_trainer = GlobalTrainer(config, os.path.join(config["results_dir"], "global"))

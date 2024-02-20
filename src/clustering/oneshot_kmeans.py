@@ -39,10 +39,6 @@ class OneShotKMeans(ClusterFLAlgo):
         self.config["time"]["tcluster"] = self.config["time"]["tnew"]
         if check_nan(self.local_metrics):
             raise ValueError("Nan or inf occurred in metrics")
-            # return self.local_metrics
-            # print("Nan or inf occurred in metrics")
-
-        # import ipdb;ipdb.set_trace()
 
         self.kmeans(experiment)
         self.config["time"]["tnew"] = time()
@@ -53,8 +49,6 @@ class OneShotKMeans(ClusterFLAlgo):
         )
         if check_nan(self.kmeans_metrics):
             raise ValueError("Nan or inf occurred in metrics")
-            # return self.kmeans_metrics
-            # print("Nan or inf occurred in metrics")
         torch.save(
             self.cluster_map,
             os.path.join(self.config["path"]["results"], "cluster_map.pth"),
@@ -83,7 +77,6 @@ class OneShotKMeans(ClusterFLAlgo):
         self.cluster_map = {}
         self.cluster_trainers = {}
         kmeans_metrics = []
-        # import ipdb;ipdb.set_trace()
 
         for i in range(self.config["num_clusters"]):
             cluster_clients = np.where(self.kmeans_model.labels_ == i)[0].tolist()

@@ -118,14 +118,11 @@ class OneShotIFCA(ClusterFLAlgo):
             self.client_trainers[i].load_saved_weights()
         ## dist clustering
         self.dist_clustering(client_dict)
-        import ipdb;ipdb.set_trace()
         if len(self.cluster_map.keys()) == 0:
             raise ValueError("Made 0 clusters after INIT")
             # self.cluster_map = TRIAL_MAP
-        # import ipdb;ipdb.set_trace()
         ## Set number of clusters
         self.config["num_clusters"] = len(self.cluster_map)
-        ## TODO: Save initial clustering in SR-FCA ? Why is this not saved?
 
     def dist_clustering(self, client_dict):
         clients = {i: [i] for i in client_dict.keys()}
@@ -143,9 +140,6 @@ class OneShotIFCA(ClusterFLAlgo):
                 self.config["dist_metric"],
             )
             dist_dict[(i, j)] = dist
-        # print("Min dist",sorted(dist_dict.values())[0])
-        # print("Max dist",sorted(dist_dict.values())[-1])
-        # import ipdb;ipdb.set_trace()
         if "dist_threshold" not in self.config.keys():
             self.config["dist_threshold"] = sorted(dist_dict.values())[
                 ceil(self.config["dist_fraction"] * len(dist_dict.keys()))
@@ -154,8 +148,6 @@ class OneShotIFCA(ClusterFLAlgo):
             if dist <= self.config["dist_threshold"]:
                 graph.add_edge(i, j)
         graph = graph.to_undirected()
-        import ipdb;ipdb.set_trace()
         dist_clustering = correlation_clustering(graph, self.config["size_threshold"])
-        # import ipdb;ipdb.set_trace()
         self.cluster_map = dist_clustering
 

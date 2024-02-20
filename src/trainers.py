@@ -60,14 +60,6 @@ class BaseTrainer(ABC):
                 else 0.0
             )
             self.loss_func = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-        # if self.config["dataset"]["name"] in ["femnist"]:
-
-        #     # if self.config["dataset"]["name"] in ["femnist", "rot_cifar10", "shakespeare"]:
-        #     self.model = set_weights(
-        #         self.config["dataset"]["name"],
-        #         self.model,
-        #         self.config["pretrained_path"],
-        #     )
 
     def train(self):
         raise NotImplementedError
@@ -233,18 +225,8 @@ class ClientTrainer(BaseTrainer):
 
         if self.lstm_flag:
             batch_size, hidden = None, None
-        # flag = True
-        # import ipdb
-
-        # ipdb.set_trace()
         for iteration in tqdm(range(local_iter), disable=False):
             t0 = time.time()
-            # if self.config["dataset"]["name"] == "rot_cifar10_ftrs":
-            #     if self.mode == "solo" and flag:
-            #         if local_iter >= 500:
-            #             for param in self.model.parameters():
-            #                 param.requires_grad=True
-            #         flag=False
             self.model.train()
             self.check_model_on_device()
 
@@ -359,18 +341,12 @@ class ClusterTrainer(BaseTrainer):
             last_round = rounds - 1
             first_round = 0
 
-        # import ipdb;ipdb.set_trace()
         if self.config["dataset"]["name"] == "rot_cifar10":
             self.model = self.model.to(memory_format=torch.channels_last)
         for round_id in tqdm(
             range(first_round, last_round + 1),
             disable=self.config["clustering"] == "ifca",
         ):
-            # if self.config["dataset"]["name"] == "rot_cifar10_ftrs":
-            #     if round_id * local_iter >= 500 and flag:
-            #         for param in self.model.parameters():
-            #             param.requires_grad=True
-            #         flag = False
             t0 = time.time()
             self.model.train()
             self.check_model_on_device()
@@ -378,9 +354,7 @@ class ClusterTrainer(BaseTrainer):
             if self.config["num_clients_per_round"] <= len(client_idx):
                 if client_sampling_wts is None:
                     client_sampling_wts = np.ones(len(client_idx))/len(client_idx)
-                #selected_clients = random.sample(
-                #    client_idx, self.config["num_clients_per_round"], 
-                #)
+
                 selected_clients =  np.random.choice(
                         client_idx, 
                         size=self.config["num_clients_per_round"], 

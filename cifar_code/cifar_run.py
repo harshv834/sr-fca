@@ -89,7 +89,6 @@ correlation_clustering(G)
 
 clusters = [cluster for cluster in clustering if len(cluster) > 1]
 cluster_map = {i: clusters[i] for i in range(len(clusters))}
-# import ipdb;ipdb.set_trace()
 config["refine_steps"] = 1
 for refine_step in tqdm(range(config["refine_steps"])):
     cluster_trainers = []

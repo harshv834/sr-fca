@@ -207,7 +207,6 @@ class SRFCA(ClusterFLAlgo):
                 self.config["dist_threshold"] = sorted(dist_dict.values())[
                     ceil(self.config["dist_fraction"] * len(dist_dict.keys()))
                 ]
-        import ipdb;ipdb.set_trace()
 
         for (i, j), dist in dist_dict.items():
             if dist <= self.config["dist_threshold"]:

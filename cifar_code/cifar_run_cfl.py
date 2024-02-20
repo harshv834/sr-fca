@@ -28,15 +28,6 @@ def cfl_single_node(config, client_dict, cluster_id):
         config["cluster_path"], "cluster_{}".format(cluster_id)
     )
 
-    # iters_per_epoch = 50000 // int(
-    #     config["train_batch"] * config["total_num_clients_per_cluster"]
-    # )
-    # epochs = 2400 // iters_per_epoch
-    # lr_schedule = np.interp(
-    #     np.arange((epochs + 1) * iters_per_epoch),
-    #     [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
-    #     [0, 1, 0],
-    # )
     cluster_trainer = ClusterTrainer(
         config=config,
         save_dir=cluster_save_dir,
@@ -152,53 +143,6 @@ def optimal_bipartitioning(cluster_id, alpha_mat):
                 partition_2_id: [client_id for client_id in C[cluster_list[1]]],
             }
 
-    # def cluster(self, experiment):
-    #     """Main method to create clusters of clients
-
-    #     Args:
-    #         experiment (dict): Dict of client data used for the experiment
-
-    #     Raises:
-    #         ValueError: When Nan or inf appears in metrics
-
-    #     Returns:
-    #         dict: Metrics of trained cluster federated learning 
-    #     """
-    #     ### Initialize the client dict and put all clients inside the first cluster which has cluster_id 0
-    #     self.config["time"]["tcluster"] = time()
-
-    #     client_dict = experiment.client_dict
-    #     init_cluster_id = 0
-    #     self.cluster_map = {init_cluster_id: list(range(self.config["num_clients"]))}
-
-    #     ## Add this cluster_id to a FIFO queue which contains cluster_idx to train next
-    #     self.cluster_idx_to_train.append(init_cluster_id)
-
-    #     ## While required number of clusters haven't been trained, perform CFL on a new cluster id
-    #     while len(self.cluster_trainers.keys()) < self.config["num_clusters"]:
-    #         ## Put cluster_idx to train in a queue and pop the queue and train each cluster.
-    #         if len(self.cluster_idx_to_train) > 0:
-    #             cluster_idx_to_train = self.cluster_idx_to_train.pop(0)
-    #             client_dict_to_train = {
-    #                 client_idx: client_dict[client_idx]
-    #                 for client_idx in self.cluster_map[cluster_idx_to_train]
-    #             }
-    #             self.cfl_single_node(client_dict_to_train, cluster_idx_to_train)
-    #         else:
-    #             break
-    #     ## Among the final clusters which remain,
-    #     self.metrics = []
-    #     for cluster_id in self.cluster_map.keys():
-    #         self.cluster_trainers[cluster_id].client_idx = self.cluster_map[cluster_id]
-    #         metrics = self.cluster_trainers[cluster_id].compute_metrics(client_dict)
-    #         if check_nan(metrics):
-    #             raise ValueError("Nan or inf occurred in metrics")
-    #         self.metrics.append((len(self.cluster_map[cluster_id]), metrics))
-    #     self.metrics = avg_metrics(self.metrics)
-    #     torch.save(self.metrics, os.path.join(self.config["path"]["results"], "metrics.pth"))
-    #     torch.save(self.cluster_map, os.path.join(self.config["path"]["results"], "cluster_map.pth"))
-    #     return self.metrics
-
 
 def main(args):
 
@@ -253,65 +197,6 @@ def main(args):
     
     
     
-    
-    # ## Initial cluster_map
-    # all_clients = list(range(16))
-    # np.random.shuffle(all_clients)
-    # cluster_map = {0: all_clients[:8], 1: all_clients[8:]}
-
-
-    # # cluster_map = {0: [0, 2, 4, 6, 8, 10, 12, 14], 1: [1, 3, 5, 7, 9, 11, 13, 15]}
-
-
-    # client_loaders = np.array(client_loaders)
-    # ifca_trainers = [
-    #     GlobalTrainer(config, os.path.join(config["results_dir"], "ifca", "cluster_0")),
-    #     GlobalTrainer(
-    #         config,
-    #         os.path.join(
-    #             config["results_dir"],
-    #             "ifca",
-    #             "cluster_1",
-    #         ),
-    #     ),
-    # ]
-    # iters_per_epoch = 50000 // int(
-    #     config["train_batch"] * config["total_num_clients_per_cluster"]
-    # )
-    # epochs = 2400 // iters_per_epoch
-    # lr_schedule = np.interp(
-    #     np.arange((epochs + 1) * iters_per_epoch),
-    #     [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
-    #     [0, 1, 0],
-    # )
-    # metrics = {0:{"train_loss" : [], "test_acc":  []}, 1:{"train_loss" : [], "test_acc" : []}}
-    # for round_id in tqdm(range(rounds)):
-    #     for i in range(2):
-    #         if len(cluster_map[i]) > 0:
-    #             train_loss_list, test_acc_list = ifca_trainers[i].train(
-    #                 client_loaders[cluster_map[i]],
-    #                 lr_schedule[
-    #                     round_id: round_id + 2
-    #                 ],
-    #             )
-    #             metrics[i]["train_loss"] += train_loss_list
-    #             metrics[i]["test_acc"] += test_acc_list
-    #         # else:
-    #         #     print("Cluster {} has 0 clients in round {}".format(i, round_id))
-    #     cluster_map = determine_clustering(ifca_trainers, client_loaders)
-    #     if round_id % config["print_freq"] == 0 or round_id == rounds - 1:
-    #         print("Curr cluster_map : {}".format(cluster_map))
-    #         print("Curr test metrics : cluster 0 : {}, cluster  1 : {}".format(metrics[0]["test_acc"][-1], metrics[1]["test_acc"][-1]))
-            
-    #     if round_id % config["save_freq"] == 0 or round_id == rounds - 1:
-
-    #         torch.save(
-    #             cluster_map,
-    #             os.path.join(
-    #                 config["results_dir"], "ifca", "cluster_map.pth"
-    #             ),
-    #         )
-    #         torch.save(metrics, os.path.join(config["results_dir"], "ifca", "metrics.pth"))
 
 
 if __name__ == "__main__":

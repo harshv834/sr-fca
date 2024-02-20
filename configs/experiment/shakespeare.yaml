@@ -1,7 +1,7 @@
 num_clients: 50
 dataset: 
   name: shakespeare
-path: /base_vol/sr_fca_main/experiments/shakespeare/
+path: experiments/shakespeare/
 batch:
   train: 10
   test: 512
