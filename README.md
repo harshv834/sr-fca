@@ -1,4 +1,4 @@
-# Code for  "An Improved Algorithm for Clustered Federated Learning"
+# Code for  "An Improved Federated Clustering Algorithm \\ with Model-based Clustering"
 
 
  

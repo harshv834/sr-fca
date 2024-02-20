@@ -3,10 +3,8 @@ import numpy as np
 from tqdm import tqdm
 import os
 import random
-import argparse
 import networkx as nx
 import itertools
-import ipdb
 
 from cifar_dataset import  create_client_loaders
 from cifar_utils import  cross_entropy_metric, create_config, model_weights_diff, create_argparse
@@ -66,11 +64,6 @@ G = nx.Graph()
 G.add_nodes_from(range(config["num_clients"]))
 
 wt = client_trainers[0].model.state_dict()
-# thresh = 0
-# for key in wt.keys():
-#     thresh += wt[key].norm()**2
-# print(torch.sqrt(thresh))
-# thresh = 37.68
 
 all_pairs = list(itertools.combinations(range(config["num_clients"]), 2))
 arr = {}
@@ -80,29 +73,20 @@ for pair in tqdm(all_pairs):
         client_trainers[pair[1]],
         [client_loaders[pair[0]]],
         [client_loaders[pair[1]]],
+        config["device"]
     )
-
-    import ipdb;ipdb.set_trace()
-    w_1  = client_trainers[pair[0]].model.state_dict()
-    w_2 = client_trainers[pair[1]].model.state_dict()
-    norm_diff = model_weights_diff(w_1, w_2)
-    arr.append(norm_diff)
-    
-#thresh = torch.mean(torch.tensor(arr))
-thresh = arr[torch.tensor(arr).argsort()[int(0.3*len(arr))-1]]
-thresh = sorted(all_pairs.values())[int(0.3 * len(all_pairs))]
-thresh = 0.0186
-
+if config["het"] == "rot":
+    thresh = 0.0186
+else:
+    thresh = 0.0140
+    #thresh = 0.0140 for 4 common classes
 for pair in all_pairs:
     if arr[pair] < thresh:
         G.add_edge(pair[0], pair[1])
 G = G.to_undirected()
-# cliques = list(nx.algorithms.clique.enumerate_all_cliques(G))
 
 correlation_clustering(G)
 
-# config["t"] = 7
-# t = config["t"]
 clusters = [cluster for cluster in clustering if len(cluster) > 1]
 cluster_map = {i: clusters[i] for i in range(len(clusters))}
 # import ipdb;ipdb.set_trace()
@@ -124,9 +108,6 @@ for refine_step in tqdm(range(config["refine_steps"])):
         cluster_trainer.train(cluster_clients)
         cluster_trainers.append(cluster_trainer)
     torch.save(cluster_map, os.path.join(refine_path, "cluster_maps.pth"))
-    # import ipdb
-
-    # ipdb.set_trace()
     cluster_map_recluster = {}
     for key in cluster_map.keys():
         cluster_map_recluster[key] = []
@@ -140,7 +121,7 @@ for refine_step in tqdm(range(config["refine_steps"])):
             trainer_cluster = cluster_trainers[cluster_id]
             cluster_clients = [client_loaders[i] for i in cluster_map[cluster_id]]
             curr_dist_diff = cross_entropy_metric(
-                trainer_node, trainer_cluster, [client_loaders[i]], cluster_clients
+                trainer_node, trainer_cluster, [client_loaders[i]], cluster_clients, config["device"]
             )
             if dist_diff > curr_dist_diff:
                 new_cluster_id = cluster_id
@@ -168,6 +149,7 @@ for refine_step in tqdm(range(config["refine_steps"])):
             client_trainers[pair[1]],
             cluster_1,
             cluster_2,
+            config["device"]
         )
 
     for pair in all_pairs:
@@ -180,8 +162,6 @@ for refine_step in tqdm(range(config["refine_steps"])):
     correlation_clustering(G)
     merge_clusters = [cluster for cluster in clustering if len(cluster) > 0]
 
-    # merge_cluster_map = {i: clusters[i] for i in range(len(clusters))}
-    # clusters = list(nx.algorithms.clique.enumerate_all_cliques(G))
     cluster_map_new = {}
     for i in range(len(merge_clusters)):
         cluster_map_new[i] = []
@@ -189,5 +169,3 @@ for refine_step in tqdm(range(config["refine_steps"])):
             cluster_map_new[i] += cluster_map[j]
     cluster_map = cluster_map_new
 
-# global_trainer = GlobalTrainer(config, os.path.join(config["results_dir"], "global"))
-# global_trainer.train(client_loaders)

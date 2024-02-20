@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import os
-from cifar_trainers import GlobalTrainer
+from cifar_trainers import ClusterTrainer
 from cifar_utils import create_argparse, create_config, wt_dict_norm, compute_alpha_max, wt_dict_dot, calc_acc
 from cifar_dataset import create_client_loaders
 import itertools
@@ -10,7 +10,7 @@ parser.add_argument(
     "--gamma_max", type=float, default = 0.5, help="gamma max for cfl"
 )
 parser.add_argument("--client_threshold", type=float, default = 0.1, help = "client threshold for cfl")
-parser.add_argument("--stop_threshold", type=float, default = 0.1, help = "stop threshold for cfl")
+parser.add_argument("--stop_threshold", type=float, default = 0.0, help = "stop threshold for cfl")
 
 
 
@@ -22,22 +22,32 @@ cluster_idx_to_train_queue = []
 
 
 
-
-
-
-
 def cfl_single_node(config, client_dict, cluster_id):
     ## Train a model for the cluster
     cluster_save_dir = os.path.join(
         config["cluster_path"], "cluster_{}".format(cluster_id)
     )
 
-    cluster_trainer = GlobalTrainer(
-        config, cluster_save_dir
+    # iters_per_epoch = 50000 // int(
+    #     config["train_batch"] * config["total_num_clients_per_cluster"]
+    # )
+    # epochs = 2400 // iters_per_epoch
+    # lr_schedule = np.interp(
+    #     np.arange((epochs + 1) * iters_per_epoch),
+    #     [0, 5 * iters_per_epoch, epochs * iters_per_epoch],
+    #     [0, 1, 0],
+    # )
+    cluster_trainer = ClusterTrainer(
+        config=config,
+        save_dir=cluster_save_dir,
+        cluster_id=cluster_id,
+        stop_threshold = config["stop_threshold"]
     )
+    cluster_trainer.client_idx = list(client_dict.keys())
     cluster_metrics[cluster_id] = cluster_trainer.train(
-        client_data_list=list(client_dict.values()),
+        client_data_list=list(client_dict.values())
     )
+    
     global cluster_trainers 
     global cluster_map
     global cluster_idx_to_train_queue

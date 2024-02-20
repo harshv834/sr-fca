@@ -21,7 +21,7 @@ def determine_clustering(ifca_trainers, client_data_list):
         for j in range(2):
             loss_list.append(
                 calc_loss(
-                    ifca_trainers[j].model, "cuda:0", client_data_list[i], train=True
+                    ifca_trainers[j].model, torch.device("cuda:0"), client_data_list[i], train=True
                 )
             )
         if loss_list[0] > loss_list[1]:

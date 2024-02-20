@@ -33,6 +33,7 @@ def calc_local_acc_from_old(base_path):
 def calc_acc(model, device, client_data, train):
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
+    model.to(device)
     with torch.no_grad():
         total_correct, total_num = 0.0, 0.0
         for ims, labs in loader:
@@ -47,7 +48,7 @@ def calc_acc(model, device, client_data, train):
 def calc_loss(model, device, client_data, train):
     loader = client_data.trainloader if train else client_data.testloader
     model.eval()
-
+    model.to(device)
     loss_func = nn.CrossEntropyLoss(label_smoothing=0.1)
     with torch.no_grad():
         total_loss, total_num = 0.0, 0.0
@@ -135,14 +136,14 @@ def compute_alpha_max(alpha_mat, partitions, client_idx):
     ].max()
 
 
-def cross_entropy_metric(trainer_1, trainer_2, client_1, client_2):
+def cross_entropy_metric(trainer_1, trainer_2, client_1, client_2, device):
     trainer_1_client_2 = 0.0
     for client in client_2:
-        trainer_1_client_2 += calc_loss(trainer_1.model, client, train=True)
+        trainer_1_client_2 += calc_loss(trainer_1.model, device, client, train=True)
         trainer_1_client_2 = trainer_1_client_2 / len(client_2)
         trainer_2_client_1 = 0.0
         for client in client_1:
-            trainer_2_client_1 += calc_loss(trainer_2.model, client, train=True)
+            trainer_2_client_1 += calc_loss(trainer_2.model, device, client, train=True)
         trainer_2_client_1 = trainer_2_client_1 / len(client_1)
         return (trainer_1_client_2 + trainer_2_client_1) / 2
 
@@ -212,7 +213,7 @@ def create_config(args):
 
 
 
-def create_argparser():
+def create_argparse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--het", choices=["rot", "label"], type=str, required=True, 
                         help="Choose whether to run experiments on Rotated CIFAR10 or CIFAR10 with label heterogeneity"
@@ -222,8 +223,9 @@ def create_argparser():
     )
     parser.add_argument(
         "--from_init",
-        action=argparse.BooleanOptionalAction  
+        action='store_true',
+        help="Start from saved local models, valid for sr_fca and oneshot_kmeans",
     )
-    parser.add_argument("--debug", action=argparse.BooleanOptionalAction, help = "debug variable")
+    parser.add_argument("--debug", action='store_true', help = "debug variable")
 
     return parser

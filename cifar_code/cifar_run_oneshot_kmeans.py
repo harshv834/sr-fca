@@ -6,7 +6,7 @@ from collections import OrderedDict
 from sklearn.cluster import KMeans
 
 
-from cifar_trainers import  ClusterTrainer 
+from cifar_trainers import  ClusterTrainer, ClientTrainer
 from cifar_utils import create_argparse, create_config, calc_acc
 from cifar_dataset import create_client_loaders
 
@@ -60,7 +60,7 @@ def unvectorize_model_wts(flat_wts, model):
         model_wts_to_update[key] = torch.tensor(
             flat_tensor.reshape(val.shape), dtype=val.dtype
         )
-    model_wts_to_update = model_wts | model_wts_to_update
+    model_wts_to_update.update(model_wts)
     return model_wts_to_update
 
 
@@ -121,7 +121,7 @@ for i in range(config["num_clusters"]):
         cluster_trainer.model.load_state_dict(cluster_center_wts)
         cluster_trainer.model.to(memory_format=torch.channels_last).cuda()
         for client_idx in cluster_clients:
-            test_acc += calc_acc(cluster_trainer.model, config["device"], client_loaders[client_idx], train=False)
+            test_acc += calc_acc(cluster_trainer.model,config["device"], client_loaders[client_idx], train=False)
         cluster_trainers[i] = cluster_trainer
 test_acc = test_acc/16
 torch.save({"test_acc" : test_acc}, os.path.join(kmeans_path, "metrics.pth"))

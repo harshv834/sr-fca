@@ -8,9 +8,9 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.optim import lr_scheduler
 from model import ResNet9
-from cifar_utils import calc_acc
 from tqdm import tqdm
-from cifar_utils import calc_acc
+from cifar_utils import calc_acc, wt_dict_diff, wt_dict_norm
+from collections import OrderedDict
 
 MODEL_LIST = {"resnet9": ResNet9}
 OPTIMIZER_LIST = {"sgd": optim.SGD, "adam": optim.Adam}
@@ -58,6 +58,12 @@ class BaseTrainer(ABC):
             os.path.join(self.save_dir, "metrics_{}.pkl".format(iteration)),
         )
 
+    def get_model_wts(self):
+        wts = {}
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                wts[name] = param.data
+        return wts
 
 
 class ClientTrainer(BaseTrainer):
@@ -129,21 +135,31 @@ class ClientTrainer(BaseTrainer):
 
         self.model.eval()
         self.model.cpu()
+        return train_loss_list, test_acc_list
 
     def test(self, client_data):
         self.load_model_weights()
-        self.model.eval()
-        self.model.to(self.device)
-        acc = calc_acc(self.model, client_data)
+        # self.model.eval()
+        # self.model.to(self.device)
+        acc = calc_acc(self.model, self.device, client_data)
         self.model.cpu()
         return acc
 
 
 
 class ClusterTrainer(BaseTrainer):
-    def __init__(self, config, save_dir, cluster_id):
+    def __init__(self, config, save_dir, cluster_id,stop_threshold=None):
         super(ClusterTrainer, self).__init__(config, save_dir)
         self.cluster_id = cluster_id
+        self.stop_threshold = stop_threshold
+
+    def stop_at_threshold(self):
+        if self.stop_threshold is None:
+            return False
+        else:
+            model_wt = self.get_model_wts()
+            diff_wt = wt_dict_diff(model_wt, self.prev_model_wt)
+            return wt_dict_norm(diff_wt) < self.stop_threshold
 
     def train(self, client_data_list):
         num_clients = len(client_data_list)
@@ -174,6 +190,9 @@ class ClusterTrainer(BaseTrainer):
         scaler = GradScaler()
 
         for iteration in tqdm(range(self.config["iterations"])):
+            # Get previous model wts
+            self.prev_model_wt = self.get_model_wts()
+
             t0 = time.time()
             trmean_buffer = {}
             for idx, param in self.model.named_parameters():
@@ -193,6 +212,7 @@ class ClusterTrainer(BaseTrainer):
                         trmean_buffer[idx].append(param.grad.clone())
 
             optimizer.zero_grad(set_to_none=True)
+
             start_idx = int(self.config["beta"] * num_clients)
             end_idx = int((1 - self.config["beta"]) * num_clients)
             if end_idx <= start_idx + 1:
@@ -203,7 +223,7 @@ class ClusterTrainer(BaseTrainer):
                 sorted, _ = torch.sort(torch.stack(trmean_buffer[idx], dim=0), dim=0)
                 new_grad = sorted[start_idx:end_idx, ...].mean(dim=0)
                 param.grad = new_grad
-                trmean_buffer[idx] = []
+                # trmean_buffer[idx] = []
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
@@ -232,8 +252,21 @@ class ClusterTrainer(BaseTrainer):
                     )
                 )
 
+            if self.stop_threshold is not None:
+                self.client_wt_diff = {client_id : OrderedDict({idx: param_list[i] for idx, param_list in trmean_buffer.items()})
+                    for i, client_id in enumerate(self.client_idx)
+                }
+                if self.stop_at_threshold():
+                    break
+            else:
+                self.client_wt_diff = {}
+            for idx in trmean_buffer.keys():
+                trmean_buffer[idx] = []
+
         self.model.eval()
         # self.model.cpu()
+        return train_loss_list, test_acc_list
+
 
     def test(self, client_data_list):
         self.load_model_weights()
@@ -324,6 +357,8 @@ class GlobalTrainer(BaseTrainer):
 
         self.model.eval()
         # self.model.cpu()
+        return train_loss_list, test_acc_list
+
 
     def test(self, client_data_list):
         self.load_model_weights()

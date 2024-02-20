@@ -69,7 +69,10 @@ def filter_labels(data, cluster_id):
     features, target = data
     target = np.array(target)
     # If cluster idx is odd, keep only the classes (5-9) else keep classes (0-4)
-    idx_to_keep = np.isin(target, range(cluster_id%2, 5*(cluster_id%2 + 1)))  
+    if cluster_id%2 == 0:
+        idx_to_keep = np.isin(target, [0,1,2,3,4,5])
+    else:
+        idx_to_keep = np.isin(target, [4,5,6,7,8,9])
     features = features[idx_to_keep]
     target = target[idx_to_keep].tolist()
     return features, target
@@ -146,7 +149,15 @@ class Client:
             temp_path, "test_client_{}.beton".format(client_id)
         )
         ## Write data to beton if it isn't already present
-        if not os.path.exists(train_beton_path) and os.path.exists(test_beton_path):
+        train_beton_exists = os.path.exists(train_beton_path)
+        test_beton_exists = os.path.exists(test_beton_path)
+        if not train_beton_exists or not test_beton_exists:
+            ## Remove existing beton files if present
+            if train_beton_exists:
+                os.remove(train_beton_path)
+            if test_beton_exists:
+                os.remove(test_beton_path)
+            
             train_writer = DatasetWriter(
                 train_beton_path,
                 {"image": RGBImageField(), "label": IntField()},
@@ -210,7 +221,7 @@ def create_client_loaders(config):
     label_pipeline: List[Operation] = [
         IntDecoder(),
         ToTensor(),
-        ToDevice("cuda:0"),
+        ToDevice(torch.device("cuda:0")),
         Squeeze(),
     ]
     train_image_pipeline: List[Operation] = [
@@ -219,7 +230,7 @@ def create_client_loaders(config):
         RandomTranslate(padding=2),
         Cutout(8, tuple(map(int, CIFAR_MEAN))),
         ToTensor(),
-        ToDevice("cuda:0", non_blocking=True),
+        ToDevice(torch.device("cuda:0"), non_blocking=True),
         ToTorchImage(),
         Convert(torch.float16),
         transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
@@ -228,7 +239,7 @@ def create_client_loaders(config):
     test_image_pipeline: List[Operation] = [
         SimpleRGBImageDecoder(),
         ToTensor(),
-        ToDevice("cuda:0", non_blocking=True),
+        ToDevice(torch.device("cuda:0"), non_blocking=True),
         ToTorchImage(),
         Convert(torch.float16),
         transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
@@ -237,9 +248,10 @@ def create_client_loaders(config):
     for i in tqdm(range(config["num_clusters"])):
         for j in tqdm(range(config["num_clients_per_cluster"])):
             idx = i * config["num_clients_per_cluster"] + j
+            train_pipeline_copy = train_image_pipeline.copy()
+            test_pipeline_copy = test_image_pipeline.copy()
+
             if i > 0 and dataset_het == "rot":
-                train_pipeline_copy = train_image_pipeline.copy()
-                test_pipeline_copy = test_image_pipeline.copy()
                 train_pipeline_copy.extend([transforms.RandomRotation((180, 180))])
                 test_pipeline_copy.extend([transforms.RandomRotation((180, 180))])
 
@@ -256,3 +268,5 @@ def create_client_loaders(config):
                     save_dir=config["results_dir"],
                 )
             )
+            
+    return client_loaders
